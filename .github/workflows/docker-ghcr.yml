@@ -22,6 +22,8 @@ jobs:
           cache: false
       - run: go vet ./...
       - run: go test ./...
+      - name: 文档命令块检查
+        run: ./scripts/check-docs.sh
 
   build:
     needs: test
