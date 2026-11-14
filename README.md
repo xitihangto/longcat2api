@@ -1,5 +1,12 @@
 # longcat2api
 
+<p align="left">
+  <a href="https://github.com/xitihangto/longcat2api/actions/workflows/docker-ghcr.yml"><img alt="docker-ghcr" src="https://github.com/xitihangto/longcat2api/actions/workflows/docker-ghcr.yml/badge.svg"></a>
+  <a href="https://github.com/xitihangto/longcat2api/pkgs/container/longcat2api"><img alt="ghcr" src="https://img.shields.io/badge/ghcr.io-longcat2api-2496ED?logo=docker&logoColor=white"></a>
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white">
+  <img alt="API" src="https://img.shields.io/badge/API-OpenAI_Compatible-412991">
+</p>
+
 把 **妙手（CatPaw / LongCat）桌面客户端**的登录态反代成 **OpenAI 兼容 API** 的自托管网关。
 
 > 灵感与工程结构参照 [workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel)（Go + 账号池 + 面板）。
