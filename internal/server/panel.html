@@ -224,7 +224,7 @@ async function load() {
   try {
     const [ov, accs] = await Promise.all([api("/panel/api/overview"), api("/panel/api/accounts")]);
     $("overview").innerHTML = [
-      card("可用账号", `${ov.accounts_ok}/${ov.accounts_total}`),
+      card("妙手账号", `${ov.accounts_ok}/${ov.accounts_total}`),
       card("可用模型", ((ov.models || []).map((m) => m.name).join("<br>")) || esc(ov.model)),
       card("会话服务", `<span class="mono">${esc(ov.chat_base)}</span>`),
       card("事件流服务", `<span class="mono">${esc(ov.stream_base)}</span>`),

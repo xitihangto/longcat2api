@@ -175,10 +175,10 @@ docker compose pull && docker compose up -d     # 升级到最新镜像
 
 | 源 | 写法 |
 |---|---|
-| 南京大学（默认，匿名） | `ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.0` |
-| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api:0.3.0` |
-| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api:0.3.0` |
-| 官方（有代理时） | `ghcr.io/xitihangto/longcat2api:0.3.0` |
+| 南京大学（默认，匿名） | `ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.1` |
+| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api:0.3.1` |
+| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api:0.3.1` |
+| 官方（有代理时） | `ghcr.io/xitihangto/longcat2api:0.3.1` |
 
 改完 `docker compose pull && docker compose up -d`。
 

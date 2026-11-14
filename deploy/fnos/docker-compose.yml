@@ -14,7 +14,7 @@
 
 services:
   longcat2api:
-    image: ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.0
+    image: ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.1
     container_name: longcat2api
     restart: unless-stopped
 
@@ -61,7 +61,7 @@ services:
   #   docker compose run --rm login -token <妙手token>
   login:
     profiles: ["tools"]
-    image: ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.0
+    image: ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.1
     container_name: longcat2api-login
     user: "0:0"
     environment:

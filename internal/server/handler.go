@@ -204,6 +204,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"stream_base":    s.cfg.Upstream.StreamBase,
 		"accounts_total": len(accs),
 		"accounts_ok":    healthy,
+		"accounts_hint":  "妙手账号数；longcat 的 Cookie 属于通道凭据，不计入账号池",
 		"models":         s.cfg.Models.Catalog,
 	})
 }

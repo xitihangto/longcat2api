@@ -227,6 +227,11 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg := Default()
+	// 关键：把切片/映射清空再解码。
+	// 否则 json 会复用 Default() 里的底层数组逐字段合并 —— 文件里没写的字段
+	// （如 provider）会继承默认值，文件名又覆盖默认项，导致模型目录串味。
+	cfg.Models.Catalog = nil
+	cfg.Models.Alias = nil
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return nil, fmt.Errorf("配置解析失败 (%s): %w", path, err)
 	}
@@ -381,12 +386,35 @@ func (c *Config) fill() {
 		lw.UserAgent = d.LongcatWeb.UserAgent
 	}
 	lw.Base = strings.TrimRight(lw.Base, "/")
-	if len(c.Models.Catalog) == 0 {
-		c.Models.Catalog = d.Models.Catalog
+	// 模型目录：保留用户自定义项，按名字补上内置新增项（老配置升级后自动获得 2.5）
+	seen := make(map[string]bool, len(c.Models.Catalog))
+	merged := make([]ModelEntry, 0, len(c.Models.Catalog)+len(d.Models.Catalog))
+	for _, e := range c.Models.Catalog {
+		if e.Name == "" {
+			continue
+		}
+		if e.Provider == "" {
+			e.Provider = "catpaw" // 老配置没写 provider：默认走妙手
+		}
+		seen[strings.ToLower(e.Name)] = true
+		merged = append(merged, e)
 	}
-	if c.Models.Alias == nil {
-		c.Models.Alias = d.Models.Alias
+	for _, e := range d.Models.Catalog {
+		if !seen[strings.ToLower(e.Name)] {
+			merged = append(merged, e)
+		}
 	}
+	c.Models.Catalog = merged
+
+	// 别名：文件优先，缺的用内置默认补齐
+	alias := make(map[string]string, len(c.Models.Alias)+len(d.Models.Alias))
+	for k, v := range d.Models.Alias {
+		alias[k] = v
+	}
+	for k, v := range c.Models.Alias {
+		alias[strings.ToLower(k)] = v
+	}
+	c.Models.Alias = alias
 	c.Upstream.ChatBase = strings.TrimRight(c.Upstream.ChatBase, "/")
 	c.Upstream.StreamBase = strings.TrimRight(c.Upstream.StreamBase, "/")
 	c.Upstream.GatewayBase = strings.TrimRight(c.Upstream.GatewayBase, "/")
