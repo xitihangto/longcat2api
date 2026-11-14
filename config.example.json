@@ -1,0 +1,37 @@
+{
+  "listen": ":8090",
+  "api_key": "sk-longcat-change-me",
+  "accounts_file": "./data/accounts.json",
+  "state_file": "./data/state.json",
+  "upstream": {
+    "chat_base": "https://nocode.cn",
+    "gateway_base": "https://catx.nocode.cn",
+    "stream_base": "https://ai.catpaw.meituan.com",
+    "model": "LongCat-2.0",
+    "source_platform": "web",
+    "tech_stack_template_id": "default",
+    "chat_source": "catdesk",
+    "timeout_seconds": 300,
+    "first_byte_seconds": 45,
+    "connect_retries": 3,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) CatPaw/2026.1110.1503 Chrome/140.0.0.0 Safari/537.36"
+  },
+  "cooldown": {
+    "soft_rate": "600s",
+    "soft_rate_max": "2h",
+    "auth_fail": "30m"
+  },
+  "models": {
+    "catalog": [
+      { "name": "LongCat-2.0", "upstream": "LongCat-2.0", "desc": "美团 LongCat 2.0（妙手默认模型）" }
+    ],
+    "alias": {
+      "longcat": "LongCat-2.0",
+      "longcat-2.0": "LongCat-2.0",
+      "auto": "LongCat-2.0",
+      "catpaw": "LongCat-2.0"
+    },
+    "hidden": []
+  },
+  "logging": { "log_requests": true, "log_frame_debug": false }
+}

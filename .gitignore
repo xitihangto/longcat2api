@@ -1,0 +1,9 @@
+# 本地配置与凭证
+config.json
+data/
+*.log
+
+# Go
+/longcat2api
+/cmd/*/longcat2api
+*.test
