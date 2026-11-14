@@ -1,0 +1,66 @@
+# ============================================================================
+# 飞牛 OS（fnOS）专用 compose —— 自包含，不依赖 .env，直接粘贴进「Docker → 项目」即可
+# ----------------------------------------------------------------------------
+# 部署前只改两处：
+#   1) LONGCAT_API_KEY  → 换成你自己的 key（例如 sk-longcat-8f3a1c），客户端要用它
+#   2) 如果你没有 /vol1/1000 这个存储空间，把下面所有 /vol1/1000/docker/longcat2api
+#      换成你自己的路径（在「文件管理」里点目录就能看到真实路径）
+#
+# 镜像走南京大学加速（国内快、匿名可拉）。想换源：
+#   ghcr.nju.edu.cn   → ghcr.1ms.run  或  ghcr.dockerproxy.net  或  ghcr.io
+#
+# 部署后访问 http://<飞牛内网IP>:8090/healthz 应返回 {"status":"ok",...}
+# ============================================================================
+
+services:
+  longcat2api:
+    image: ghcr.nju.edu.cn/xitihangto/longcat2api:0.1.0
+    container_name: longcat2api
+    restart: unless-stopped
+
+    # 飞牛上以 root 运行最省事：挂载目录不用 chown，accounts.json(0600) 也能直接读
+    user: "0:0"
+
+    ports:
+      - "8090:8090"
+
+    environment:
+      TZ: Asia/Shanghai
+      LONGCAT_LISTEN: ":8090"
+      # ★ 改成你自己的 key；留空 = 不鉴权（仅限纯内网）
+      LONGCAT_API_KEY: "sk-longcat-change-me"
+      LONGCAT_LOG_REQUESTS: "true"
+
+    volumes:
+      # 配置目录：空的也行，程序会自动生成 config.json
+      - /vol1/1000/docker/longcat2api/config:/app/config
+      # 账号：把 Mac 上生成的 accounts.json 放进这个目录
+      - /vol1/1000/docker/longcat2api/data:/app/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "L=$${LONGCAT_LISTEN:-:8090}; wget -qO- http://127.0.0.1:$${L#:}/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 可选：没有 accounts.json 时，用它把 token 直接写进 /app/data/accounts.json
+  #   docker compose run --rm login -token <妙手token>
+  login:
+    profiles: ["tools"]
+    image: ghcr.nju.edu.cn/xitihangto/longcat2api:0.1.0
+    container_name: longcat2api-login
+    user: "0:0"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - /vol1/1000/docker/longcat2api/config:/app/config
+      - /vol1/1000/docker/longcat2api/data:/app/data
+    entrypoint: ["/app/longcat-login"]
+    command: ["-config", "/app/config/config.json"]
