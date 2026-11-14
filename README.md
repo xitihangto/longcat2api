@@ -104,8 +104,12 @@ docker compose run --rm login -check      # 巡检现有账号
 
 **① 一条命令 → 剪贴板（三选一，按你机器上有什么）**
 
+下面的命令都要在**仓库根目录**执行（也就是能看到 `cmd/`、`scripts/` 的那一层）：
+
 ```bash
-# macOS 自带 Swift（零安装，推荐）
+cd ~/DSH/longcat2api          # ← 换成你 clone / 放仓库的路径
+
+# macOS 自带 Swift（零安装）—— 需要 CLT 或 Xcode
 swift scripts/import-miaoshou-token.swift --copy
 
 # 有 node 的环境
@@ -153,7 +157,7 @@ go run ./cmd/login -copy
 **B. Mac 上懒人版（一条命令）**
 
 ```bash
-node scripts/import-chrome-cookie.mjs      # 从本机 Chrome 解密出 longcat cookie → /tmp/lc-cookie.txt
+cd ~/DSH/longcat2api && node scripts/import-chrome-cookie.mjs   # 从本机 Chrome 解密出 cookie → /tmp/lc-cookie.txt
 ```
 把文件内容粘进面板即可（不需要装任何东西，用系统自带的 node 就行）。
 
