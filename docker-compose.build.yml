@@ -1,0 +1,25 @@
+# 本地构建覆盖文件（默认的 docker-compose.yml 只拉镜像，不含构建）
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml build
+#
+# 基础镜像拉不动（Docker Hub 慢）时，在 .env 里换镜像站：
+#   BASE_GO=docker.m.daocloud.io/library/golang:1.22-alpine
+#   BASE_RUN=docker.m.daocloud.io/library/alpine:3.20
+
+services:
+  longcat2api:
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        BASE_GO: ${BASE_GO:-golang:1.22-alpine}
+        BASE_RUN: ${BASE_RUN:-alpine:3.20}
+
+  login:
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        BASE_GO: ${BASE_GO:-golang:1.22-alpine}
+        BASE_RUN: ${BASE_RUN:-alpine:3.20}

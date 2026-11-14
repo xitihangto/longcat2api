@@ -1,62 +1,61 @@
-# longcat2api · 妙手(CatPaw) → OpenAI 兼容网关
+# ============================================================================
+# longcat2api · 妙手(CatPaw) → OpenAI 兼容 API 网关
+# ----------------------------------------------------------------------------
+# 三步起服务：
+#   cp .env.example .env                       # 填 LONGCAT_API_KEY（可留空不开鉴权）
+#   cp config.example.json config/config.json  # 想改端口/模型再编辑
+#   docker compose pull && docker compose up -d
 #
-# 用法（从 GitHub 拉官方镜像）：
-#   1) cp .env.example .env && cp config.example.json config/config.json   # 填好 api_key
-#   2) 准备账号（二选一）：
-#      a. 宿主机已登录妙手客户端 → 执行 `go run ./cmd/login`
-#         （解密本机凭据写入 ./data/accounts.json，容器挂载即可用）
-#      b. 直接把 token 写进 .env 的 LONGCAT_TOKEN，首次启动自动导入
-#   3) docker compose pull && docker compose up -d
-#   4) curl -N http://127.0.0.1:8090/v1/chat/completions -H 'Authorization: Bearer <api_key>' ...
+# 不想用镜像、要本地构建：
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 #
-# 想本地构建而不是拉镜像：docker compose up -d --build
+# 国内拉取慢 → 在 .env 里换 IMAGE 走加速站（下面三个都实测可拉，任选）：
+#   IMAGE=ghcr.1ms.run/xitihangto/longcat2api              # 1ms.run（需 docker 自动换 token，实测 200）
+#   IMAGE=ghcr.nju.edu.cn/xitihangto/longcat2api           # 南京大学镜像，匿名可用
+#   IMAGE=ghcr.dockerproxy.net/xitihangto/longcat2api      # 匿名可用，速度一般
+#   也可以直接跑 ./scripts/pull-image.sh，自动挑一个能用的写进 .env
 #
-# 注意：容器内无法读取 macOS/Windows 客户端的加密凭据（机器标识不同），
-#       token 必须由宿主机工具或 .env 注入。
+# 账号怎么进容器（容器内读不到本机客户端的加密凭据）：
+#   a) 宿主机执行 go run ./cmd/login  →  写入 ./data/accounts.json
+#   b) 或把 token 填进 .env 的 LONGCAT_TOKEN，首次启动自动导入
+# ============================================================================
 
 services:
   longcat2api:
-    build:
-      context: .
-      args:
-        # 国内网络可换成 https://goproxy.cn,direct
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    # 默认拉 GHCR 上的多架构镜像（amd64/arm64）；本地构建用 --build
-    image: ghcr.io/xitihangto/longcat2api:${TAG:-latest}
+    # 镜像：默认 GHCR 官方；换加速站只改 IMAGE（不含 tag），TAG 单独控制版本
+    image: ${IMAGE:-ghcr.io/xitihangto/longcat2api}:${TAG:-latest}
     container_name: longcat2api
     restart: unless-stopped
 
-    # 默认 root 运行：挂载目录免 chown，accounts.json(0600) 也能直接读，开箱可用。
-    # 想收紧权限就用宿主 uid：.env 里写 PUID=$(id -u) / PGID=$(id -g)
-    # （此时需保证 ./data ./config 属主一致，否则可能读不到 accounts.json）
+    # 默认 root：挂载目录免 chown，accounts.json(0600) 也能直接读
+    # 想非 root：.env 里写 PUID=$(id -u) / PGID=$(id -g)
     user: "${PUID:-0}:${PGID:-0}"
+
+    ports:
+      - "${PORT:-8090}:8090"
 
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      # 非空则覆盖 config.json 里的 api_key
+      # 非空则覆盖 config/config.json 里的 api_key
       LONGCAT_API_KEY: ${LONGCAT_API_KEY:-}
-      # 可选：覆盖监听/模型/上游域名（一般不用动）
-      LONGCAT_LISTEN: ${LONGCAT_LISTEN:-:8090}
+      LONGCAT_LISTEN: ":8090"
+      # 以下留空 = 用 config.json / 内置默认值
       LONGCAT_MODEL: ${LONGCAT_MODEL:-}
       LONGCAT_CHAT_BASE: ${LONGCAT_CHAT_BASE:-}
       LONGCAT_STREAM_BASE: ${LONGCAT_STREAM_BASE:-}
       LONGCAT_GATEWAY_BASE: ${LONGCAT_GATEWAY_BASE:-}
       LONGCAT_LOG_REQUESTS: ${LONGCAT_LOG_REQUESTS:-true}
-      # 首次启动注入账号；导入成功后会落到 /app/data/accounts.json，
-      # 之后可以把这个变量删掉
+      # 首次启动注入账号，导入成功后会落到 /app/data/accounts.json，之后可删
       LONGCAT_TOKEN: ${LONGCAT_TOKEN:-}
 
-    ports:
-      - "${PORT:-8090}:8090"
-
     volumes:
-      # 配置目录（挂目录而不是文件：文件不存在时程序会自动生成，不会变成目录踩坑）
+      # 配置目录（挂目录而非文件：缺 config.json 时程序会自动生成，不会踩"挂载点变目录"的坑）
       - ./config:/app/config
-      # 账号 + 冷却状态持久化
+      # 账号 accounts.json + 冷却状态 state.json
       - ./data:/app/data
 
     healthcheck:
-      # $$ 是 compose 的转义：真正交给 shell 的是 $L / ${L#:}
+      # $$ 是 compose 转义，真正交给 shell 的是 ${L}；端口跟随 LONGCAT_LISTEN
       test: ["CMD-SHELL", "L=$${LONGCAT_LISTEN:-:8090}; wget -qO- http://127.0.0.1:$${L#:}/healthz >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
@@ -69,17 +68,12 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 一次性工具容器：在容器内校验/导入 token
+  # 一次性工具容器（不参与 up）：容器内导入 / 巡检 token
   #   docker compose run --rm login -token <妙手token>
   #   docker compose run --rm login -check
   login:
     profiles: ["tools"]
-    build:
-      context: .
-      args:
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    # 默认拉 GHCR 上的多架构镜像（amd64/arm64）；本地构建用 --build
-    image: ghcr.io/xitihangto/longcat2api:${TAG:-latest}
+    image: ${IMAGE:-ghcr.io/xitihangto/longcat2api}:${TAG:-latest}
     container_name: longcat2api-login
     user: "${PUID:-0}:${PGID:-0}"
     environment:

@@ -56,18 +56,40 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 ## Docker 部署
 
-镜像已发布到 GitHub Container Registry（amd64 / arm64 多架构，跟随 `main` 自动构建）：
+镜像发布在 GitHub Container Registry（amd64 / arm64 多架构，跟随 `main` 自动构建）。
+
+### 拉取慢？换加速站
+
+`docker-compose.yml` 里 image 是 `${IMAGE}:${TAG}`，只改 `IMAGE` 就能走加速：
+
+| 源 | `IMAGE=` | 说明 |
+|---|---|---|
+| 官方 GHCR | `ghcr.io/xitihangto/longcat2api` | 海外/有代理时最快 |
+| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api` | 国内加速，实测可拉双架构 |
+| 南京大学 | `ghcr.nju.edu.cn/xitihangto/longcat2api` | 匿名可用，速度快 |
+| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api` | 匿名可用，较慢但稳 |
+
+不想手挑就自动试：
 
 ```bash
-docker pull ghcr.io/xitihangto/longcat2api:latest
+./scripts/pull-image.sh        # 逐个 docker pull，成功者把 IMAGE 写回 .env
 ```
 
+### 起服务
+
 ```bash
-cp .env.example .env                        # 填 LONGCAT_API_KEY（可选 PUID/PGID、LONGCAT_TOKEN）
+cp .env.example .env                        # 填 LONGCAT_API_KEY，按需改 IMAGE
 cp config.example.json config/config.json   # 想改端口/模型再编辑
-docker compose pull && docker compose up -d # 想本地构建：换成 docker compose up -d --build
+docker compose pull && docker compose up -d
 docker compose logs -f longcat2api
 curl -s http://127.0.0.1:8090/healthz
+```
+
+本地构建（不用镜像）：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# 基础镜像拉不动时在 .env 里换：BASE_GO/BASE_RUN=docker.m.daocloud.io/library/...
 ```
 
 | 项 | 值 |
@@ -76,7 +98,7 @@ curl -s http://127.0.0.1:8090/healthz
 | 平台 | `linux/amd64`, `linux/arm64` |
 | 自动构建 | 推 `v*` tag 或合入 `main` 触发 `.github/workflows/docker-ghcr.yml`（先跑 go vet + go test） |
 
-> GHCR 包若为私有：`echo <PAT> | docker login ghcr.io -u <用户名> --password-stdin`，PAT 只需 `read:packages`。
+> GHCR 包若改成私有：`echo <PAT> | docker login ghcr.io -u <用户名> --password-stdin`，PAT 只需 `read:packages`。
 
 ### 账号怎么进容器
 

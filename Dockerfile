@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1
+# 基础镜像可用构建参数替换成镜像站（国内拉 Docker Hub 慢时用），例如：
+#   docker build --build-arg BASE_GO=docker.m.daocloud.io/library/golang:1.22-alpine \
+#                --build-arg BASE_RUN=docker.m.daocloud.io/library/alpine:3.20 .
+ARG BASE_GO=golang:1.22-alpine
+ARG BASE_RUN=alpine:3.20
+
 # ---------- build ----------
-FROM golang:1.22-alpine AS build
+FROM ${BASE_GO} AS build
 WORKDIR /src
 
 # 国内网络友好：GOPROXY 走 goproxy.cn（本项目零外部依赖，此步主要用于 go mod 校验）
@@ -25,7 +31,7 @@ RUN set -eux; \
       go build -trimpath -ldflags="-s -w" -o /out/longcat-login ./cmd/login
 
 # ---------- runtime ----------
-FROM alpine:3.20
+FROM ${BASE_RUN}
 
 # ca-certificates: 访问 https://nocode.cn 等上游必需
 # tzdata: 正确的时间/日志时区   wget: HEALTHCHECK 探活
