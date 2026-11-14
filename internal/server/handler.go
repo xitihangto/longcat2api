@@ -26,21 +26,28 @@ var panelHTML []byte
 
 // Server HTTP 服务。
 type Server struct {
-	cfg  *config.Config
-	pool *pool.Pool
-	up   *upstream.Client
-	mux  *http.ServeMux
+	cfg     *config.Config
+	pool    *pool.Pool
+	up      *upstream.Client
+	mux     *http.ServeMux
+	Version string
 }
 
 // New 构建服务。
-func New(cfg *config.Config, p *pool.Pool, up *upstream.Client) *Server {
-	s := &Server{cfg: cfg, pool: p, up: up, mux: http.NewServeMux()}
+func New(cfg *config.Config, p *pool.Pool, up *upstream.Client, version string) *Server {
+	s := &Server{cfg: cfg, pool: p, up: up, mux: http.NewServeMux(), Version: version}
 	s.routes()
 	return s
 }
 
 // Handler 返回 http.Handler。
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler {
+	// 每个响应都带版本号：排查「镜像是新版还是旧版」一眼就知道
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Longcat-Version", s.Version)
+		s.mux.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/healthz", s.handleHealth)
@@ -100,10 +107,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":   health,
-		"service":  "longcat2api",
-		"accounts": s.cfgAccountCount(),
-		"time":     time.Now().Format(time.RFC3339),
+		"status":           health,
+		"service":          "longcat2api",
+		"version":          s.Version,
+		"accounts":         s.cfgAccountCount(),
+		"api_key_required": s.cfg.APIKey != "",
+		"panel_key_hint":   "/panel?key=<api_key>",
+		"time":             time.Now().Format(time.RFC3339),
 	})
 }
 
@@ -147,6 +157,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"service":        "longcat2api",
+		"version":        s.Version,
 		"model":          s.cfg.Upstream.Model,
 		"chat_base":      s.cfg.Upstream.ChatBase,
 		"stream_base":    s.cfg.Upstream.StreamBase,

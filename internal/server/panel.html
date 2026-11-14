@@ -34,13 +34,15 @@
   .notice { background:rgba(245,166,35,.12); border:1px solid rgba(245,166,35,.35); color:#f5c76a;
             padding:10px 14px; border-radius:10px; font-size:13px; margin-bottom:16px; }
   .notice b { color:#ffd88a; }
+  .ver { font-size:12px; font-weight:500; color:var(--dim); border:1px solid var(--line);
+         border-radius:999px; padding:1px 8px; vertical-align:middle; margin-left:6px; }
   input.bad { border-color:var(--err); box-shadow:0 0 0 3px rgba(255,92,92,.12); }
   .hint { color:var(--dim); font-size:12px; margin-top:14px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>longcat2api</h1>
+  <h1>longcat2api <span id="ver" class="ver">v?</span></h1>
   <div class="sub">妙手(CatPaw) 客户端 → OpenAI 兼容网关 · 本地运维面板</div>
 
   <div class="bar">
@@ -99,6 +101,18 @@ function showNotice(html) {
 }
 function hideNotice() { $("hint").hidden = true; }
 
+function needKeyNotice(extra) {
+  $("key").classList.add("bad");
+  showNotice(
+    `<b>需要 API Key</b>　面板与 /v1 接口用同一个 key 保护（compose 里的 <span class="mono">LONGCAT_API_KEY</span>` +
+    ` 或 config.json 里的 <span class="mono">api_key</span>）。` +
+    (extra ? `<br>${extra}` : "") +
+    `<br>把它填到上面的输入框 → 点「保存并刷新」；也可以直接访问 ` +
+    `<span class="mono">/panel?key=你的key</span>（0.1.1+ 支持，会自动记住）。`
+  );
+  $("key").focus();
+}
+
 class AuthError extends Error {}
 
 async function api(path) {
@@ -135,21 +149,29 @@ async function load() {
       // 面板受 api_key 保护：没 key / key 不对 → 引导用户填
       $("overview").innerHTML = "";
       $("accounts").innerHTML = `<tr><td colspan="7" class="mono">等待 API Key…</td></tr>`;
-      $("key").classList.add("bad");
-      showNotice(
-        `<b>需要 API Key</b>　面板与 /v1 接口用同一个 key 保护（compose 里的 <span class="mono">LONGCAT_API_KEY</span>` +
-        ` 或 config.json 里的 <span class="mono">api_key</span>）。` +
-        `<br>把它填到上面的输入框 → 点「保存并刷新」；也可以直接访问 ` +
-        `<span class="mono">/panel?key=你的key</span> 一次进入（会自动记住）。`
-      );
-      $("key").focus();
+      needKeyNotice(key() ? "当前填的 key 不对，请核对 compose 里的 LONGCAT_API_KEY。" : "");
       return;
     }
     hideNotice();
     $("accounts").innerHTML = `<tr><td colspan="7" class="mono">加载失败：${esc(e.message)}</td></tr>`;
   }
 }
-load();
+async function boot() {
+  try {
+    const r = await fetch("/healthz");
+    const h = await r.json();
+    if (h.version) $("ver").textContent = "v" + h.version;
+    if (h.api_key_required && !key()) {
+      // 还没填 key：直接给提示，不用等 401
+      needKeyNotice("");
+      $("accounts").innerHTML = `<tr><td colspan="7" class="mono">等待 API Key…</td></tr>`;
+      return;
+    }
+  } catch { /* healthz 挂了就直接试 api */ }
+  load();
+}
+
+boot();
 setInterval(load, 15000);
 </script>
 </body>

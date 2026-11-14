@@ -21,7 +21,7 @@ import (
 	"github.com/linquin/longcat2api/internal/upstream"
 )
 
-const appVersion = "0.1.1"
+const appVersion = "0.1.2"
 
 func main() {
 	cfgPath := flag.String("config", "config.json", "配置文件路径（不存在时自动生成推荐配置）")
@@ -66,7 +66,7 @@ func main() {
 
 	p := pool.New(store, cfg)
 	up := upstream.New(cfg)
-	srv := server.New(cfg, p, up)
+	srv := server.New(cfg, p, up, appVersion)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
