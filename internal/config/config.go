@@ -65,10 +65,17 @@ type LongcatWeb struct {
 	Base string `json:"base"`
 	// AppKey 前端固定 appkey，缺省即官方值
 	AppKey string `json:"appkey"`
-	// Mode "oversea"（默认，免登录）或 "cn"（需登录 Cookie）
+	// Mode 通道工作方式：
+	//   guest —— 免登录游客接口（chat-completion-oversea-V2），默认
+	//   auth  —— 带 Cookie 的登录态接口（session-create + chat-completion-V2）
+	// 历史别名会自动归一（见 NormalizeMode），老配置无需改动
 	Mode string `json:"mode"`
-	// Cookie 仅 cn 模式需要：浏览器登录 longcat.chat 后复制整串 Cookie
+	// Cookie 仅 auth 模式需要：面板「扫码登录」自动获取，或手工粘贴
 	Cookie string `json:"cookie"`
+	// LoginURL 面板「扫码/邮箱登录」打开的页面。
+	// 国际站：https://longcat.ai/chat（passport.mykeeta.com，支持邮箱）
+	// 国内站：https://longcat.chat（passport.meituan.com，微信/手机扫码）
+	LoginURL string `json:"login_url"`
 	// AgentID 上游 agentId，默认 "1"
 	AgentID string `json:"agent_id"`
 	// ReasonEnabled 让上游输出思考内容（会通过 reasoning_content 回给客户端）
@@ -121,6 +128,18 @@ type Logging struct {
 	LogFrameSize bool `json:"log_frame_debug"`
 }
 
+// NormalizeMode 把历史别名收敛成 guest / auth。
+func NormalizeMode(m string) string {
+	switch strings.ToLower(strings.TrimSpace(m)) {
+	case "", "guest", "oversea", "free", "anon":
+		return "guest"
+	case "auth", "cn", "cookie", "login":
+		return "auth"
+	default:
+		return "guest"
+	}
+}
+
 // SoftRate / SoftRateMax / AuthFail 的解析值。
 func (c Cooldown) SoftRateDur() time.Duration { return parseDur(c.SoftRate, 600*time.Second) }
 func (c Cooldown) SoftRateMaxDur() time.Duration {
@@ -160,9 +179,10 @@ func Default() *Config {
 		},
 		LongcatWeb: LongcatWeb{
 			Enabled:          true,
-			Base:             "https://longcat.chat",
+			Base:             "https://longcat.ai",
+			LoginURL:         "https://longcat.ai/chat",
 			AppKey:           "fe_com.sankuai.friday.fe.longcat",
-			Mode:             "oversea",
+			Mode:             "guest",
 			AgentID:          "1",
 			MinIntervalMS:    1500,
 			Cooldown:         "90s",
@@ -253,10 +273,13 @@ func (c *Config) applyEnv() {
 		c.LongcatWeb.Base = strings.TrimRight(v, "/")
 	}
 	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_MODE")); v != "" {
-		c.LongcatWeb.Mode = v
+		c.LongcatWeb.Mode = NormalizeMode(v)
 	}
 	if v := os.Getenv("LONGCAT_WEB_COOKIE"); strings.TrimSpace(v) != "" {
 		c.LongcatWeb.Cookie = strings.TrimSpace(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_LOGIN_URL")); v != "" {
+		c.LongcatWeb.LoginURL = v
 	}
 	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_MIN_INTERVAL_MS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -341,9 +364,7 @@ func (c *Config) fill() {
 	if lw.AppKey == "" {
 		lw.AppKey = d.LongcatWeb.AppKey
 	}
-	if lw.Mode == "" {
-		lw.Mode = d.LongcatWeb.Mode
-	}
+	lw.Mode = NormalizeMode(lw.Mode)
 	if lw.AgentID == "" {
 		lw.AgentID = d.LongcatWeb.AgentID
 	}
@@ -352,6 +373,9 @@ func (c *Config) fill() {
 	}
 	if lw.Cooldown == "" {
 		lw.Cooldown = d.LongcatWeb.Cooldown
+	}
+	if lw.LoginURL == "" {
+		lw.LoginURL = strings.TrimRight(lw.Base, "/") + "/chat"
 	}
 	if lw.UserAgent == "" {
 		lw.UserAgent = d.LongcatWeb.UserAgent

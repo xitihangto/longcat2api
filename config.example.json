@@ -53,11 +53,11 @@
     "log_frame_debug": false
   },
   "longcat_web": {
-    "_comment": "longcat.chat 网页通道：免费 LongCat-2.5。oversea 模式免登录；cn 模式需 cookie（登录后额度更稳）。",
+    "_comment": "longcat 网页通道（免费 LongCat-2.5）。mode: guest=免登录游客接口 / auth=带 Cookie 的登录态接口（面板『扫码登录』或粘 Cookie 后自动切 auth）。站点：国际站 https://longcat.ai（passport.mykeeta.com，邮箱登录），国内站 https://longcat.chat（微信/手机扫码）；两者游客配额独立。",
     "enabled": true,
-    "base": "https://longcat.chat",
+    "base": "https://longcat.ai",
     "appkey": "fe_com.sankuai.friday.fe.longcat",
-    "mode": "oversea",
+    "mode": "guest",
     "cookie": "",
     "agent_id": "1",
     "reason_enabled": false,
@@ -65,6 +65,7 @@
     "min_interval_ms": 1500,
     "cooldown": "90s",
     "fallback_to_catpaw": true,
-    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "login_url": "https://longcat.ai/chat"
   }
 }

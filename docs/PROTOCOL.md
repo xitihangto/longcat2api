@@ -123,7 +123,17 @@ macOS 路径：`~/Library/Application Support/catpaw-moon/catx-credential.json`
    `#user-query\nHere is the user's actual question or request:\n<user-query>…</user-query>\n#current-route…`
    这是官方行为（`isAgent:true` 时），对普通问答无副作用。
 
-## 3.5 longcat.chat 网页通道（免费 LongCat-2.5）
+## 3.5 longcat 网页通道（免费 LongCat-2.5）
+
+**两个站点，同一套代码、同一套接口，但游客配额是两个独立池**（实测 longcat.chat 被 429 时 longcat.ai 仍可用）：
+
+| 站点 | 定位 | 登录 |
+|---|---|---|
+| `https://longcat.ai/chat` | **国际站**（页头有「国际站」徽标） | `passport.mykeeta.com`（region=HK），支持 **Continue with email** |
+| `https://longcat.chat` | 国内站 | `passport.meituan.com`，微信 / 手机号扫码 |
+
+账号体系也不同：国际站账号 `email` 有值、`phone` 为空、`uid=0`（走 mykeeta passport）；
+国内站账号有手机号与 meituan uid。
 
 与妙手完全独立的一条线：**longcat.chat 网页前端的对话接口**，实测返回 `LongCat-2.5-Agent`。
 
@@ -131,8 +141,10 @@ macOS 路径：`~/Library/Application Support/catpaw-moon/catx-credential.json`
 
 | 模式 | 端点 | 鉴权 | 额度 |
 |---|---|---|---|
-| `oversea`（默认） | `POST /api/v1/chat-completion-oversea-V2` | **无需任何凭据** | 网页游客配额，**限流很凶** |
-| `cn` | `POST /api/v1/session-create` → `POST /api/v1/chat-completion-V2` | Cookie（登录态） | 账号额度，稳定得多 |
+| `guest`（默认） | `POST /api/v1/chat-completion-oversea-V2` | **无需任何凭据** | 网页游客配额，**限流很凶** |
+| `auth` | `POST /api/v1/session-create` → `POST /api/v1/chat-completion-V2` | Cookie（登录态） | 账号额度，稳定得多 |
+
+> 模式名**与站点无关**：两个站点都支持 guest / auth 两种模式。
 
 固定请求头（缺了会被拒）：
 
@@ -145,7 +157,7 @@ x-client-language: zh
 x-requested-with: XMLHttpRequest
 ```
 
-### 3.5.2 oversea 请求体
+### 3.5.2 guest 请求体
 
 ```jsonc
 {

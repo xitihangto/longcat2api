@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,11 +33,12 @@ type Server struct {
 	lw      *upstream.LongcatWeb
 	mux     *http.ServeMux
 	Version string
+	cfgPath string
 }
 
 // New 构建服务。
-func New(cfg *config.Config, p *pool.Pool, up *upstream.Client, lw *upstream.LongcatWeb, version string) *Server {
-	s := &Server{cfg: cfg, pool: p, up: up, lw: lw, mux: http.NewServeMux(), Version: version}
+func New(cfg *config.Config, p *pool.Pool, up *upstream.Client, lw *upstream.LongcatWeb, version, cfgPath string) *Server {
+	s := &Server{cfg: cfg, pool: p, up: up, lw: lw, mux: http.NewServeMux(), Version: version, cfgPath: cfgPath}
 	s.routes()
 	return s
 }
@@ -56,6 +58,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/chat/completions", s.auth(s.handleChat))
 	s.mux.HandleFunc("/panel/api/overview", s.auth(s.handleOverview))
 	s.mux.HandleFunc("/panel/api/accounts", s.auth(s.handleAccounts))
+	s.mux.HandleFunc("/panel/api/channel", s.auth(s.handleChannelStatus))
+	s.mux.HandleFunc("/panel/api/channel/login", s.auth(s.handleChannelLogin))
 	s.mux.HandleFunc("/panel", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(panelHTML)
@@ -224,6 +228,128 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// ---------------- longcat-web 通道凭据（面板登录） ----------------
+
+func (s *Server) handleChannelStatus(w http.ResponseWriter, r *http.Request) {
+	mode, hasCookie, cooling := s.lw.CookieInfo()
+	mode = config.NormalizeMode(mode)
+	en, _, _ := s.lw.Status()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"enabled":         en,
+		"mode":            mode,
+		"has_cookie":      hasCookie,
+		"cooldown_left_s": cooling,
+		"login_url":       s.cfg.LongcatWeb.LoginURL,
+		"models":          s.modelsOf("longcat-web"),
+	})
+}
+
+// handleChannelLogin 接收 Cookie（整串或浏览器 Copy as cURL 的原文），
+// 校验通过后热更新并落盘，无需重启容器。
+func (s *Server) handleChannelLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "只支持 POST")
+		return
+	}
+	var body struct {
+		Cookie string `json:"cookie"`
+		Curl   string `json:"curl"`
+		Raw    string `json:"raw"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", "请求体解析失败: "+err.Error())
+		return
+	}
+	input := strings.TrimSpace(body.Cookie)
+	if input == "" {
+		input = strings.TrimSpace(body.Curl)
+	}
+	if input == "" {
+		input = strings.TrimSpace(body.Raw)
+	}
+	if input == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_request", "没有提供 Cookie")
+		return
+	}
+	cookie, err := extractCookie(input)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_cookie", err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	uid, name, login, err := s.lw.CheckCookie(ctx, cookie)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "check_failed", "校验失败: "+err.Error())
+		return
+	}
+	if login == 0 {
+		writeErr(w, http.StatusUnauthorized, "not_logged_in",
+			"Cookie 未登录或已过期（loginStatus=0）。请确认在 longcat.chat 已登录，并复制最新的整串 Cookie。")
+		return
+	}
+
+	s.lw.SetCookie(cookie)
+	s.cfg.LongcatWeb.Cookie = cookie
+	s.cfg.LongcatWeb.Mode = "auth"
+	saved := true
+	if s.cfgPath != "" {
+		if err := config.Save(s.cfgPath, s.cfg); err != nil {
+			saved = false
+			log.Printf("⚠️  Cookie 已生效但写配置失败: %v", err)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":            true,
+		"uid":           uid,
+		"name":          name,
+		"login_status":  login,
+		"mode":          "auth",
+		"persisted":     saved,
+		"cookie_length": len(cookie),
+	})
+}
+
+// extractCookie 支持三种粘贴形态：
+//  1. 直接一整串 Cookie（"a=1; b=2"）
+//  2. 浏览器 DevTools「Copy as cURL」的整段命令（从中抠 -H 'cookie: ...'）
+//  3. 只粘了若干 "name=value" 片段
+func extractCookie(input string) (string, error) {
+	in := strings.TrimSpace(input)
+	low := strings.ToLower(in)
+	if strings.HasPrefix(low, "curl ") || strings.Contains(low, "curl ") && strings.Contains(low, "-h ") {
+		// 从 curl 里找 cookie 头（单双引号都支持）
+		for _, re := range []string{
+			`(?i)-H\s+'cookie:\s*([^']+)'`,
+			`(?i)-H\s+"cookie:\s*([^"]+)"`,
+			`(?i)--cookie\s+'([^']+)'`,
+			`(?i)--cookie\s+"([^"]+)"`,
+			`(?i)-b\s+'([^']+)'`,
+			`(?i)-b\s+"([^"]+)"`,
+		} {
+			if m, _ := regexp.Compile(re); m != nil {
+				if sub := m.FindStringSubmatch(in); len(sub) > 1 {
+					return strings.TrimSpace(sub[1]), nil
+				}
+			}
+		}
+		return "", fmt.Errorf("从 cURL 里没找到 cookie 头，请直接粘贴 Cookie 字符串")
+	}
+	// 去掉前缀 "Cookie:"，规整换行/空格
+	c := strings.TrimSpace(in)
+	c = strings.TrimPrefix(strings.TrimPrefix(c, "Cookie:"), "cookie:")
+	c = strings.ReplaceAll(c, "\n", "; ")
+	c = strings.ReplaceAll(c, "\r", "")
+	c = strings.Join(strings.Fields(c), " ")
+	if !strings.Contains(c, "=") {
+		return "", fmt.Errorf("这不像 Cookie（缺少 name=value），请从浏览器 Network → 任意请求 → Request Headers → Cookie 复制")
+	}
+	return c, nil
 }
 
 // ---------------- Chat Completions ----------------

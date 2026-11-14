@@ -7,3 +7,4 @@ data/
 /longcat2api
 /cmd/*/longcat2api
 *.test
+

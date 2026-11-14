@@ -15,7 +15,7 @@
 >
 > ⚠️ **仅供本人账号、本机/私有环境自用**。请勿批量注册、对外售卖额度或二次分发，相关风险与作者无关。
 
-## 现状（v0.1.0）
+## 现状（v0.3.0）
 
 | 能力 | 状态 |
 |---|---|
@@ -25,9 +25,10 @@
 | `GET /v1/models` | ✅ 列出 `LongCat-2.5`（免费网页通道）与 `LongCat-2.0`（妙手） |
 | `GET /healthz` / `/panel/api/*` 观测接口 | ✅ |
 | 妙手登录态一键导入（本机凭据解密） | ✅ `go run ./cmd/login` |
+| longcat 登录态（Cookie）导入 | ✅ 面板粘贴 / Copy as cURL / `scripts/import-chrome-cookie.mjs` |
 | 多账号池 + 熔断/冷却/在途负载 | ✅ |
 | Docker / docker compose 部署 | ✅ Dockerfile + compose + 健康检查 |
-| Web 面板 UI | ✅ 最简版（`/panel`：账号池 + 概览，15s 自刷；受 api_key 保护，`/panel?key=<key>` 可直达） |
+| Web 面板 UI | ✅ 最简版（`/panel`：双通道状态 + 账号池 + 概览，15s 自刷；`/panel?key=<key>` 可直达） |
 | 工具调用 / 多模态 / 联网搜索 | ⏳ 未接入 |
 | token 自动续期 | ⏳ 需重新登录导入 |
 
@@ -45,7 +46,7 @@ go run ./cmd/login
 
 # 3) 启动
 go run ./cmd/server
-# longcat2api 0.1.0 启动 → http://127.0.0.1:8090  (账号 1 个)
+# longcat2api 0.3.0 启动 → http://127.0.0.1:8090  (账号 1 个)
 
 # 4) 调用
 curl -N http://127.0.0.1:8090/v1/chat/completions \
@@ -63,13 +64,42 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 | 模型 | 通道 | 凭据 | 说明 |
 |---|---|---|---|
-| `LongCat-2.5` | longcat.chat 网页通道 | **免登录**（可选 Cookie） | 免费，上游限流较凶；有真实 token 用量 |
+| `LongCat-2.5` | longcat **国际站**网页通道（`longcat.ai`） | **免登录**（可选 Cookie） | 免费，上游限流较凶；有真实 token 用量 |
 | `LongCat-2.0` | 妙手 CatPaw 账号池 | 妙手登录态（`cmd/login` 导入） | 稳定不限流，模型固定 2.0 |
 
 客户端只写模型名：`LongCat-2.5` / `longcat-2.5` / `2.5` 走免费 2.5；`LongCat-2.0` / `longcat` 走妙手。
 2.5 被限流时会自动回落到 2.0（`longcat_web.fallback_to_catpaw`），响应头 `X-Longcat-Channel` 标明实际通道。
 
 > ⚠️ 两条通道都只提供**文本补全**：不吃 `tools` / `function calling`，不能当 Claude Code 那类 agent 的后端。
+
+## 登录 longcat（拿 Cookie）
+
+只有**一次**操作，cookie 有效期很长，之后不用再管。三条路，按方便程度：
+
+**A. 浏览器 F12（最通用）**
+
+1. 打开 `https://longcat.ai/chat` → 点「请先登录」→ 邮箱登录（`passport.mykeeta.com`，Continue with email）
+2. F12 → Network → 任意请求 → 右键 **Copy as cURL**（或复制 Request Headers 里的整串 `Cookie`）
+3. 粘进面板「② 粘贴 Cookie」→ 点「③ 校验并保存」
+
+面板会调上游校验，成功即热生效并写入配置，**不用重启容器**。支持整串 Cookie、`Cookie:` 前缀、以及整段 cURL。
+
+**B. Mac 上懒人版（一条命令）**
+
+```bash
+node scripts/import-chrome-cookie.mjs      # 从本机 Chrome 解密出 longcat cookie → /tmp/lc-cookie.txt
+```
+把文件内容粘进面板即可（不需要装任何东西，用系统自带的 node 就行）。
+
+**C. 命令行直接灌**
+
+```bash
+curl -X POST http://<网关>/panel/api/channel/login \
+  -H "Authorization: Bearer <api_key>" -H 'Content-Type: application/json' \
+  -d "$(python3 -c 'import json;print(json.dumps({"cookie":open("/tmp/lc-cookie.txt").read()}))')"
+```
+
+> 之前做过一版「内置远程浏览器扫码登录」，镜像要 1.8GB 而且帧率低，已移除 —— 一次性登录不值这个体积。
 
 ## Docker 部署
 
@@ -111,8 +141,8 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 | 项 | 值 |
 |---|---|
-| 镜像 | `ghcr.io/xitihangto/longcat2api`（tag：`latest` / `0.1.0`=`v0.1.0` / `sha-<短哈希>`） |
-| 发版 | [v0.1.0](https://github.com/xitihangto/longcat2api/releases/tag/v0.1.0)（`git tag -a vX.Y.Z && git push origin vX.Y.Z` 即自动出多架构镜像） |
+| 镜像 | `ghcr.io/xitihangto/longcat2api`（tag：`latest` / `0.3.0`=`v0.3.0` / `sha-<短哈希>`） |
+| 发版 | [v0.3.0](https://github.com/xitihangto/longcat2api/releases/tag/v0.3.0)（`git tag -a vX.Y.Z && git push origin vX.Y.Z` 即自动出多架构镜像） |
 | 平台 | `linux/amd64`, `linux/arm64` |
 | 自动构建 | 推 `v*` tag 或合入 `main` 触发 `.github/workflows/docker-ghcr.yml`（先跑 go vet + go test） |
 
@@ -188,7 +218,7 @@ docker compose up -d
 `Dockerfile` 交叉编译 `linux/amd64` 与 `linux/arm64`（CGO 关闭的静态二进制）：
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t yourname/longcat2api:0.1.0 --push .
+docker buildx build --platform linux/amd64,linux/arm64 -t yourname/longcat2api:0.3.0 --push .
 ```
 
 ## 配置说明（config.json）

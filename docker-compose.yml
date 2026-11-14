@@ -68,6 +68,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
+
   # 一次性工具容器（不参与 up）：容器内导入 / 巡检 token
   #   docker compose run --rm login -token <妙手token>
   #   docker compose run --rm login -check
@@ -79,7 +80,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       LONGCAT_WEB_COOKIE: ${LONGCAT_WEB_COOKIE:-}
-      LONGCAT_WEB_MODE: ${LONGCAT_WEB_MODE:-oversea}
+      LONGCAT_WEB_MODE: ${LONGCAT_WEB_MODE:-guest}
     volumes:
       - ./config:/app/config
       - ./data:/app/data

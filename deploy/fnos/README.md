@@ -107,6 +107,15 @@ docker compose ps
 
 ---
 
+## 4.5 可选：启用免费 LongCat-2.5（国际站）
+
+0.3.0 起网关自带上第二条通道（`longcat.ai` 网页版，免费 LongCat-2.5）：
+
+- **免登录**就能用（游客配额，容易限流）
+- 想要稳定：浏览器登录 `https://longcat.ai/chat`（邮箱登录）→ F12 → 任意请求 → 右键 **Copy as cURL**
+  → 打开面板 `http://<NAS>:8090/panel?key=<你的key>` → 「② 粘贴 Cookie」→ 「③ 校验并保存」
+- 客户端里模型名写 `LongCat-2.5`（或 `2.5`）即走这条；写 `LongCat-2.0` 走妙手
+
 ## 5. 验收（四条命令，全过就算成功）
 
 ```bash
@@ -166,10 +175,10 @@ docker compose pull && docker compose up -d     # 升级到最新镜像
 
 | 源 | 写法 |
 |---|---|
-| 南京大学（默认，匿名） | `ghcr.nju.edu.cn/xitihangto/longcat2api:0.1.0` |
-| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api:0.1.0` |
-| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api:0.1.0` |
-| 官方（有代理时） | `ghcr.io/xitihangto/longcat2api:0.1.0` |
+| 南京大学（默认，匿名） | `ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.0` |
+| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api:0.3.0` |
+| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api:0.3.0` |
+| 官方（有代理时） | `ghcr.io/xitihangto/longcat2api:0.3.0` |
 
 改完 `docker compose pull && docker compose up -d`。
 

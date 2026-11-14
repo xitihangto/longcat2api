@@ -34,6 +34,15 @@
   .notice { background:rgba(245,166,35,.12); border:1px solid rgba(245,166,35,.35); color:#f5c76a;
             padding:10px 14px; border-radius:10px; font-size:13px; margin-bottom:16px; }
   .notice b { color:#ffd88a; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .chan { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px; }
+  .chan h3 { margin:0 0 10px; font-size:14px; font-weight:600; }
+  .chan .line { display:flex; gap:14px; flex-wrap:wrap; color:var(--dim); font-size:13px; margin-bottom:10px; }
+  .chan .line b { color:var(--fg); font-weight:500; }
+  textarea { width:100%; min-height:64px; background:#12151b; color:var(--fg); border:1px solid var(--line);
+             border-radius:9px; padding:9px 12px; font-family:ui-monospace,Menlo,monospace; font-size:12px; resize:vertical; }
+  .msg { margin-top:8px; font-size:13px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--err); }
   .ver { font-size:12px; font-weight:500; color:var(--dim); border:1px solid var(--line);
          border-radius:999px; padding:1px 8px; vertical-align:middle; margin-left:6px; }
   input.bad { border-color:var(--err); box-shadow:0 0 0 3px rgba(255,92,92,.12); }
@@ -52,6 +61,18 @@
   </div>
 
   <div id="hint" class="notice" hidden></div>
+
+  <div class="chan" id="chanCard">
+    <h3 id="chanTitle">longcat 网页通道（免费 LongCat-2.5）</h3>
+    <div class="line" id="chanLine">读取中…</div>
+    <div class="line" style="gap:8px">
+      <button class="ghost" id="btnOpenLogin" onclick="openLogin()">① 去登录</button>
+      <button class="ghost" onclick="pasteCookie()">② 粘贴 Cookie</button>
+      <button onclick="saveCookie()">③ 校验并保存</button>
+    </div>
+    <textarea id="ck" placeholder="登录后：F12 → Network → 任意请求 → Request Headers → 复制整串 Cookie（或对该请求右键 Copy as cURL 整段粘进来）"></textarea>
+    <div class="msg" id="ckMsg"></div>
+  </div>
 
   <div class="grid" id="overview"></div>
 
@@ -125,12 +146,86 @@ async function api(path) {
 function card(k, v) { return `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+const CH = { status: null };
+
+async function loadChannel() {
+  try {
+    const st = await api("/panel/api/channel");
+    CH.status = st;
+    const modeTxt = st.mode === "auth" ? "已登录（Cookie 登录态）" : "游客（免登录）";
+    const ck = st.has_cookie ? '<b style="color:var(--ok)">已保存 Cookie</b>' : "未保存 Cookie";
+    const cool = st.cooldown_left_s > 0 ? `<b style="color:var(--warn)">冷却 ${st.cooldown_left_s}s</b>` : "未限流";
+    const host = siteOf(st.login_url) || "longcat.ai";
+    const intl = /longcat\.ai$/i.test(host);
+    $("chanTitle").textContent = `longcat 网页通道（${intl ? "国际站 · " : "国内站 · "}${host}，免费 LongCat-2.5）`;
+    $("btnOpenLogin").textContent = `① 打开 ${host}`;
+
+    $("chanLine").innerHTML =
+      `<span>状态：<b>${modeTxt}</b></span><span>${ck}</span><span>${cool}</span>` +
+      `<span>模型：<b>${(st.models || []).join(", ") || "-"}</b></span>`;
+  } catch (e) {
+    $("chanLine").textContent = "通道状态读取失败：" + e.message;
+  }
+}
+
+function siteOf(url) {
+  try { return new URL(url).hostname; } catch { return ""; }
+}
+
+function openLogin() {
+  const u = (CH.status && CH.status.login_url) || "https://longcat.ai/chat";
+  window.open(u, "_blank", "noopener");
+  setCkMsg(`已打开 ${siteOf(u)}，登录完成后回到这里粘贴 Cookie。`, "");
+}
+
+async function pasteCookie() {
+  try {
+    const t = await navigator.clipboard.readText();
+    if (!t.trim()) return setCkMsg("剪贴板是空的", "bad");
+    $("ck").value = t.trim();
+    setCkMsg("已从剪贴板粘贴，点「校验并保存」。", "");
+  } catch {
+    setCkMsg("浏览器不允许读剪贴板，请手动 Ctrl/Cmd+V 粘到下面文本框。", "bad");
+    $("ck").focus();
+  }
+}
+
+function setCkMsg(text, kind) {
+  const el = $("ckMsg");
+  el.className = "msg " + (kind || "");
+  el.textContent = text;
+}
+
+async function saveCookie() {
+  const v = $("ck").value.trim();
+  if (!v) return setCkMsg("请先粘贴 Cookie", "bad");
+  setCkMsg("校验中…", "");
+  try {
+    const r = await fetch("/panel/api/channel/login", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" },
+        key() ? { Authorization: "Bearer " + key() } : {}),
+      body: JSON.stringify({ cookie: v }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      setCkMsg(d.error ? d.error.message : ("HTTP " + r.status), "bad");
+      return;
+    }
+    $("ck").value = "";
+    setCkMsg(`✅ 登录成功：${d.name} (uid ${d.uid})，已启用登录态（Cookie）` + (d.persisted ? "，并写入配置。" : "（写配置失败，重启后会丢）"), "ok");
+    loadChannel();
+  } catch (e) {
+    setCkMsg("请求失败：" + e.message, "bad");
+  }
+}
+
 async function load() {
   try {
     const [ov, accs] = await Promise.all([api("/panel/api/overview"), api("/panel/api/accounts")]);
     $("overview").innerHTML = [
       card("可用账号", `${ov.accounts_ok}/${ov.accounts_total}`),
-      card("默认模型", esc(ov.model)),
+      card("可用模型", ((ov.models || []).map((m) => m.name).join("<br>")) || esc(ov.model)),
       card("会话服务", `<span class="mono">${esc(ov.chat_base)}</span>`),
       card("事件流服务", `<span class="mono">${esc(ov.stream_base)}</span>`),
     ].join("");
@@ -169,6 +264,7 @@ async function boot() {
     }
   } catch { /* healthz 挂了就直接试 api */ }
   load();
+  loadChannel();
 }
 
 boot();

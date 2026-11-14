@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -21,7 +22,15 @@ import (
 	"github.com/linquin/longcat2api/internal/upstream"
 )
 
-const appVersion = "0.2.0"
+const appVersion = "0.3.0"
+
+// cfgPathForSave 返回配置文件的绝对路径，供面板热写回。
+func cfgPathForSave(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
 
 func main() {
 	cfgPath := flag.String("config", "config.json", "配置文件路径（不存在时自动生成推荐配置）")
@@ -67,7 +76,7 @@ func main() {
 	p := pool.New(store, cfg)
 	up := upstream.New(cfg)
 	lw := upstream.NewLongcatWeb(cfg)
-	srv := server.New(cfg, p, up, lw, appVersion)
+	srv := server.New(cfg, p, up, lw, appVersion, cfgPathForSave(*cfgPath))
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,

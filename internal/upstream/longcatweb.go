@@ -2,8 +2,8 @@
 //
 // 协议要点（详见 docs/PROTOCOL.md）：
 //
-//	oversea 模式（默认，免登录）：POST {base}/api/v1/chat-completion-oversea-V2
-//	cn 模式（需登录 Cookie）    ：POST {base}/api/v1/session-create → POST {base}/api/v1/chat-completion-V2
+//	guest 模式（默认，免登录）：POST {base}/api/v1/chat-completion-oversea-V2
+//	auth  模式（需登录 Cookie）：POST {base}/api/v1/session-create → POST {base}/api/v1/chat-completion-V2
 //	SSE 帧：event.type = create | content | finish，正文增量在 event.content，
 //	末帧带 tokenInfo（真实 token 数）。
 package upstream
@@ -32,7 +32,7 @@ type LongcatWeb struct {
 	mu        sync.Mutex
 	lastSent  time.Time
 	coolUntil time.Time
-	sessionID string // cn 模式复用会话
+	sessionID string // auth 模式复用会话
 }
 
 // NewLongcatWeb 构建网页通道客户端。
@@ -90,7 +90,7 @@ func (c *LongcatWeb) Chat(ctx context.Context, prompt, model string, onDelta, on
 	res := &Result{Model: model, Status: "completed"}
 
 	var err error
-	if strings.EqualFold(lw.Mode, "cn") {
+	if config.NormalizeMode(lw.Mode) == "auth" {
 		err = c.chatCN(ctx, prompt, res, onDelta, onReason)
 	} else {
 		err = c.chatOversea(ctx, prompt, res, onDelta, onReason)
@@ -99,6 +99,69 @@ func (c *LongcatWeb) Chat(ctx context.Context, prompt, model string, onDelta, on
 		return res, err
 	}
 	return res, nil
+}
+
+// SetCookie 运行期更新 Cookie（面板登录后热生效），空串表示清空。
+func (c *LongcatWeb) SetCookie(cookie string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.LongcatWeb.Cookie = strings.TrimSpace(cookie)
+	if c.cfg.LongcatWeb.Cookie == "" {
+		c.sessionID = ""
+		return
+	}
+	// 有 cookie 就走登录态模式
+	c.cfg.LongcatWeb.Mode = "auth"
+	c.sessionID = "" // 换凭据后会话失效
+}
+
+// CookieInfo 返回当前凭据状态（不回传 cookie 本身）。
+func (c *LongcatWeb) CookieInfo() (mode string, hasCookie bool, cooling int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	left := int64(0)
+	if d := time.Until(c.coolUntil); d > 0 {
+		left = int64(d.Seconds())
+	}
+	return c.cfg.LongcatWeb.Mode, c.cfg.LongcatWeb.Cookie != "", left
+}
+
+// CheckCookie 校验 cookie 对应的 longcat.chat 登录态，返回 uid/昵称/loginStatus。
+func (c *LongcatWeb) CheckCookie(ctx context.Context, cookie string) (uid, name string, login int, err error) {
+	lw := c.cfg.LongcatWeb
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, lw.Base+"/api/v1/user-current", nil)
+	if err != nil {
+		return "", "", 0, err
+	}
+	for k, v := range c.headers(false) {
+		req.Header.Set(k, v)
+	}
+	if strings.TrimSpace(cookie) != "" {
+		req.Header.Set("cookie", cookie)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return "", "", 0, errOf(KindNetwork, 0, 0, "%s", err.Error())
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			UID         any `json:"uid"`
+			UserID      any `json:"userId"`
+			Name        any `json:"name"`
+			LoginStatus int `json:"loginStatus"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", "", 0, errOf(KindUpstream, resp.StatusCode, 0, "响应解析失败: %s", snippet(raw))
+	}
+	if out.Code != 0 {
+		return "", "", 0, errOf(KindUpstream, resp.StatusCode, out.Code, "%s", out.Message)
+	}
+	return anyToID(out.Data.UID), anyToName(out.Data.Name), out.Data.LoginStatus, nil
 }
 
 // Status 返回通道运行态，供 /healthz 展示。
@@ -209,7 +272,7 @@ func (c *LongcatWeb) chatOversea(ctx context.Context, prompt string, res *Result
 func (c *LongcatWeb) chatCN(ctx context.Context, prompt string, res *Result, onDelta, onReason func(string) error) error {
 	lw := c.cfg.LongcatWeb
 	if lw.Cookie == "" {
-		return errOf(KindAuth, 401, 0, "longcat-web cn 模式需要 cookie（登录 longcat.chat 后复制）")
+		return errOf(KindAuth, 401, 0, "longcat-web auth 模式需要 cookie（面板点『扫码登录』或粘贴 Cookie）")
 	}
 	convID, err := c.ensureSession(ctx)
 	if err != nil {
@@ -229,7 +292,7 @@ func (c *LongcatWeb) chatCN(ctx context.Context, prompt string, res *Result, onD
 	return c.doStream(ctx, lw.Base+"/api/v1/chat-completion-V2", body, true, res, onDelta, onReason)
 }
 
-// ensureSession 为 cn 模式创建（并缓存）会话。
+// ensureSession 为 auth 模式创建（并缓存）会话。
 func (c *LongcatWeb) ensureSession(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	if c.sessionID != "" {
@@ -412,6 +475,33 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// anyToID 把 JSON number/string 统一成可读 id（避免 float64 变成科学计数法）
+func anyToID(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case float64:
+		if x == float64(int64(x)) {
+			return fmt.Sprintf("%d", int64(x))
+		}
+		return fmt.Sprintf("%v", x)
+	case json.Number:
+		return x.String()
+	default:
+		return fmt.Sprint(x)
+	}
+}
+
+func anyToName(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return anyToID(v)
 }
 
 func boolToInt(b bool) int {
