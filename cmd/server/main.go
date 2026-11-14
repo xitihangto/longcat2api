@@ -21,7 +21,7 @@ import (
 	"github.com/linquin/longcat2api/internal/upstream"
 )
 
-const appVersion = "0.1.0"
+const appVersion = "0.1.1"
 
 func main() {
 	cfgPath := flag.String("config", "config.json", "配置文件路径（不存在时自动生成推荐配置）")
@@ -77,6 +77,11 @@ func main() {
 	go func() {
 		log.Printf("longcat2api %s 启动 → http://127.0.0.1%s  (账号 %d 个)", appVersion, cfg.Listen, store.Enabled())
 		log.Printf("上游: chat=%s stream=%s model=%s", cfg.Upstream.ChatBase, cfg.Upstream.StreamBase, cfg.Upstream.Model)
+		if cfg.APIKey != "" {
+			log.Printf("面板/接口已启用 API Key 保护；浏览器首次进入面板可直接用：http://127.0.0.1%s/panel?key=<你的 key>", cfg.Listen)
+		} else {
+			log.Printf("⚠️  未设置 api_key：/v1 与 /panel 对内网开放，请勿暴露到公网")
+		}
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP 服务异常: %v", err)
 		}

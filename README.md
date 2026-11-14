@@ -26,7 +26,7 @@
 | 妙手登录态一键导入（本机凭据解密） | ✅ `go run ./cmd/login` |
 | 多账号池 + 熔断/冷却/在途负载 | ✅ |
 | Docker / docker compose 部署 | ✅ Dockerfile + compose + 健康检查 |
-| Web 面板 UI | ✅ 最简版（`/panel`：账号池 + 概览，15s 自刷） |
+| Web 面板 UI | ✅ 最简版（`/panel`：账号池 + 概览，15s 自刷；受 api_key 保护，`/panel?key=<key>` 可直达） |
 | 工具调用 / 多模态 / 联网搜索 | ⏳ 未接入 |
 | token 自动续期 | ⏳ 需重新登录导入 |
 
@@ -54,6 +54,9 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 任意 OpenAI SDK / Cherry Studio / NextChat 只要把 Base URL 改成
 `http://127.0.0.1:8090/v1`，模型填 `LongCat-2.0`（或别名 `longcat`）即可。
+
+面板同理受 `api_key` 保护：浏览器直接开 `/panel?key=<你的 api_key>` 会自动记住 key；
+手动进入则在页面输入框里填同一个 key 再点「保存并刷新」。
 
 ## Docker 部署
 

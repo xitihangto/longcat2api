@@ -31,6 +31,10 @@
   button { background:#2a62ff; color:#fff; border:0; padding:9px 16px; border-radius:9px; cursor:pointer; }
   button.ghost { background:#222834; color:var(--fg); }
   .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--dim); }
+  .notice { background:rgba(245,166,35,.12); border:1px solid rgba(245,166,35,.35); color:#f5c76a;
+            padding:10px 14px; border-radius:10px; font-size:13px; margin-bottom:16px; }
+  .notice b { color:#ffd88a; }
+  input.bad { border-color:var(--err); box-shadow:0 0 0 3px rgba(255,92,92,.12); }
   .hint { color:var(--dim); font-size:12px; margin-top:14px; }
 </style>
 </head>
@@ -40,10 +44,12 @@
   <div class="sub">妙手(CatPaw) 客户端 → OpenAI 兼容网关 · 本地运维面板</div>
 
   <div class="bar">
-    <input id="key" type="password" placeholder="API key（config.json 的 api_key，本地调试可留空）" />
+    <input id="key" type="password" placeholder="API Key（填你在 compose / config.json 里设的 api_key）" autocomplete="off" />
     <button onclick="saveKey()">保存并刷新</button>
     <button class="ghost" onclick="load()">刷新</button>
   </div>
+
+  <div id="hint" class="notice" hidden></div>
 
   <div class="grid" id="overview"></div>
 
@@ -62,12 +68,42 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-function key() { return localStorage.getItem("lc_key") || ""; }
-function saveKey() { localStorage.setItem("lc_key", $("key").value.trim()); load(); }
-$("key").value = key();
+const LS = "lc_key";
+
+function key() { return localStorage.getItem(LS) || ""; }
+
+function saveKey() {
+  const v = $("key").value.trim();
+  if (v) localStorage.setItem(LS, v); else localStorage.removeItem(LS);
+  hideNotice();
+  $("key").classList.remove("bad");
+  load();
+}
+
+// 支持 /panel?key=xxx 直接进入（方便把带 key 的链接存成书签）
+(function bootKey() {
+  const u = new URL(location.href);
+  const q = u.searchParams.get("key");
+  if (q) {
+    localStorage.setItem(LS, q.trim());
+    u.searchParams.delete("key");
+    history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
+  }
+  $("key").value = key();
+})();
+
+function showNotice(html) {
+  const n = $("hint");
+  n.innerHTML = html;
+  n.hidden = false;
+}
+function hideNotice() { $("hint").hidden = true; }
+
+class AuthError extends Error {}
 
 async function api(path) {
   const r = await fetch(path, { headers: key() ? { Authorization: "Bearer " + key() } : {} });
+  if (r.status === 401) throw new AuthError("401");
   if (!r.ok) throw new Error(path + " → HTTP " + r.status);
   return r.json();
 }
@@ -95,6 +131,21 @@ async function load() {
         <td class="mono">${esc(a.last_error) || "—"}</td>
       </tr>`).join("") : `<tr><td colspan="7" class="mono">还没有账号，先跑 go run ./cmd/login</td></tr>`;
   } catch (e) {
+    if (e instanceof AuthError) {
+      // 面板受 api_key 保护：没 key / key 不对 → 引导用户填
+      $("overview").innerHTML = "";
+      $("accounts").innerHTML = `<tr><td colspan="7" class="mono">等待 API Key…</td></tr>`;
+      $("key").classList.add("bad");
+      showNotice(
+        `<b>需要 API Key</b>　面板与 /v1 接口用同一个 key 保护（compose 里的 <span class="mono">LONGCAT_API_KEY</span>` +
+        ` 或 config.json 里的 <span class="mono">api_key</span>）。` +
+        `<br>把它填到上面的输入框 → 点「保存并刷新」；也可以直接访问 ` +
+        `<span class="mono">/panel?key=你的key</span> 一次进入（会自动记住）。`
+      );
+      $("key").focus();
+      return;
+    }
+    hideNotice();
     $("accounts").innerHTML = `<tr><td colspan="7" class="mono">加载失败：${esc(e.message)}</td></tr>`;
   }
 }
