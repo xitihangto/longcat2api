@@ -65,6 +65,8 @@ services:
     user: "0:0"
     environment:
       TZ: Asia/Shanghai
+      LONGCAT_WEB_COOKIE: ""
+      LONGCAT_WEB_MODE: "oversea"
     volumes:
       - /vol1/1000/docker/longcat2api/config:/app/config
       - /vol1/1000/docker/longcat2api/data:/app/data

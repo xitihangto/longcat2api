@@ -78,6 +78,8 @@ services:
     user: "${PUID:-0}:${PGID:-0}"
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      LONGCAT_WEB_COOKIE: ${LONGCAT_WEB_COOKIE:-}
+      LONGCAT_WEB_MODE: ${LONGCAT_WEB_MODE:-oversea}
     volumes:
       - ./config:/app/config
       - ./data:/app/data
