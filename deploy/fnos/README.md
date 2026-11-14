@@ -21,8 +21,10 @@
 
 ```bash
 cd ~/DSH/longcat2api
-go run ./cmd/login          # 解密本机客户端凭据 → 校验 → 写入 ./data/accounts.json
-cat data/accounts.json      # 应该看到 uid / name / token
+# 解密本机客户端凭据 → 校验 → 写入 ./data/accounts.json
+go run ./cmd/login
+# 应该看到 uid / name / token
+cat data/accounts.json
 ```
 
 拿到两样东西：
@@ -113,7 +115,8 @@ docker compose ps
 
 - 在 Mac 上（仓库根目录，即能看到 `cmd/`、`scripts/` 的那层）跑：
   ```bash
-  cd ~/DSH/longcat2api                     # 换成你实际路径
+  # 换成你实际路径
+  cd ~/DSH/longcat2api
   swift scripts/import-miaoshou-token.swift --copy
   ```
   或跑 `go run ./cmd/login` 后从 `data/accounts.json` 复制 `token`（`AgGF…`）
@@ -168,9 +171,12 @@ curl -s http://127.0.0.1:8090/v1/chat/completions \
 ```bash
 cd /vol1/1000/docker/longcat2api
 
-docker compose logs -f --tail=100 longcat2api   # 看日志
-docker compose restart longcat2api              # 重启
-docker compose pull && docker compose up -d     # 升级到最新镜像
+# 看日志
+docker compose logs -f --tail=100 longcat2api
+# 重启
+docker compose restart longcat2api
+# 升级到最新镜像
+docker compose pull && docker compose up -d
 ```
 
 - **开机自启**：`restart: unless-stopped` 已配好；飞牛 Docker 项目页也有「自动启动」开关，保持开启即可。

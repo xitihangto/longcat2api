@@ -38,15 +38,14 @@
 # 0) 依赖：Go 1.22+；本机已登录妙手客户端
 cd longcat2api
 
-# 1) 生成配置（首次运行自动写入推荐配置）
-go run ./cmd/server -config ./config.json     # 首次会生成 config.json 后启动
+# 1) 生成配置并启动（首次运行会自动写入推荐配置）
+go run ./cmd/server -config ./config.json
 
 # 2) 导入账号：从客户端凭据解密 + 校验 + 写入 data/accounts.json
 go run ./cmd/login
 
-# 3) 启动
+# 3) 启动（应看到：longcat2api 0.3.x 启动 → http://127.0.0.1:8090  (账号 N 个)）
 go run ./cmd/server
-# longcat2api 0.3.0 启动 → http://127.0.0.1:8090  (账号 1 个)
 
 # 4) 调用
 curl -N http://127.0.0.1:8090/v1/chat/completions \
@@ -89,15 +88,18 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 **B. 宿主机导入**
 
 ```bash
-go run ./cmd/login                 # Mac/PC 上已登录妙手客户端：自动解密 + 校验 + 入库
-go run ./cmd/login -token 'AgGF…'  # 或直接给 token / cURL
+# Mac/PC 上已登录妙手客户端：自动解密 + 校验 + 入库
+go run ./cmd/login
+# 或直接给 token / cURL
+go run ./cmd/login -token 'AgGF…'
 ```
 
 **C. 容器内工具容器**
 
 ```bash
 docker compose run --rm login -token 'AgGF…'
-docker compose run --rm login -check      # 巡检现有账号
+# 巡检现有账号
+docker compose run --rm login -check
 ```
 
 ### token 从哪来（三选一）
@@ -107,7 +109,8 @@ docker compose run --rm login -check      # 巡检现有账号
 下面的命令都要在**仓库根目录**执行（也就是能看到 `cmd/`、`scripts/` 的那一层）：
 
 ```bash
-cd ~/DSH/longcat2api          # ← 换成你 clone / 放仓库的路径
+# 先进入仓库根目录（换成你实际的路径）
+cd ~/DSH/longcat2api
 
 # macOS 自带 Swift（零安装）—— 需要 CLT 或 Xcode
 swift scripts/import-miaoshou-token.swift --copy
@@ -157,7 +160,8 @@ go run ./cmd/login -copy
 **B. Mac 上懒人版（一条命令）**
 
 ```bash
-cd ~/DSH/longcat2api && node scripts/import-chrome-cookie.mjs   # 从本机 Chrome 解密出 cookie → /tmp/lc-cookie.txt
+# 从本机 Chrome 解密出 cookie → /tmp/lc-cookie.txt
+cd ~/DSH/longcat2api && node scripts/import-chrome-cookie.mjs
 ```
 把文件内容粘进面板即可（不需要装任何东西，用系统自带的 node 就行）。
 
@@ -189,14 +193,17 @@ curl -X POST http://<网关>/panel/api/channel/login \
 不想手挑就自动试：
 
 ```bash
-./scripts/pull-image.sh        # 逐个 docker pull，成功者把 IMAGE 写回 .env
+# 逐个 docker pull，成功者把 IMAGE 写回 .env
+./scripts/pull-image.sh
 ```
 
 ### 起服务
 
 ```bash
-cp .env.example .env                        # 填 LONGCAT_API_KEY，按需改 IMAGE
-cp config.example.json config/config.json   # 想改端口/模型再编辑
+# 填 LONGCAT_API_KEY，按需改 IMAGE
+cp .env.example .env
+# 想改端口/模型再编辑
+cp config.example.json config/config.json
 docker compose pull && docker compose up -d
 docker compose logs -f longcat2api
 curl -s http://127.0.0.1:8090/healthz
@@ -226,7 +233,8 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 ```bash
 # 本机已登录妙手客户端时
-go run ./cmd/login                 # 解密 + 校验 + 写入 ./data/accounts.json
+# 解密 + 校验 + 写入 ./data/accounts.json
+go run ./cmd/login
 docker compose restart longcat2api # 重启加载账号（或首次 up 时即已挂载）
 ```
 
@@ -235,15 +243,18 @@ docker compose restart longcat2api # 重启加载账号（或首次 up 时即已
 ```bash
 # 1) 先把 token 拿到手：宿主机跑 go run ./cmd/login，或从 ./data/accounts.json 里取
 # 2) 写进 .env：LONGCAT_TOKEN=AgGF...
-docker compose up -d --build       # 首次启动检测到无账号 → 自动校验并写入 /app/data/accounts.json
+# 首次启动检测到无账号 → 自动校验并写入 /app/data/accounts.json
+docker compose up -d --build
 # 3) 导入成功后可以把 .env 里的 LONGCAT_TOKEN 删掉
 ```
 
 也可以在容器内跑工具容器：
 
 ```bash
-docker compose run --rm login -token AgGF...   # 导入指定 token
-docker compose run --rm login -check           # 巡检已有账号是否有效
+# 导入指定 token
+docker compose run --rm login -token AgGF...
+# 巡检已有账号是否有效
+docker compose run --rm login -check
 ```
 
 ### 目录挂载
@@ -276,7 +287,8 @@ docker compose run --rm login -check           # 巡检已有账号是否有效
 
 ```bash
 echo "PUID=$(id -u)"$'\n'"PGID=$(id -g)" >> .env
-sudo chown -R "$(id -u):$(id -g)" ./data ./config   # 属主要和 PUID/PGID 一致
+# 属主要和 PUID/PGID 一致
+sudo chown -R "$(id -u):$(id -g)" ./data ./config
 docker compose up -d
 ```
 
