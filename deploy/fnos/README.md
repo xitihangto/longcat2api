@@ -111,7 +111,7 @@ docker compose ps
 
 以前只能靠把 Mac 上的 `accounts.json` 拷过来。现在面板顶部多了「妙手账号」卡片：
 
-- 在 Mac 上跑 `node scripts/import-miaoshou-token.mjs`（直接打印 token），
+- 在 Mac 上跑 `swift scripts/import-miaoshou-token.swift --copy`（macOS 自带 Swift，无需安装），
   或跑 `go run ./cmd/login` 后从 `data/accounts.json` 复制 `token`（`AgGF…`）
 - 或者直接从妙手客户端的请求里复制带 `access-token` 头的 cURL
 - 粘进面板 → 「校验并导入」→ 立即生效，账号池数量 +1

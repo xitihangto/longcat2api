@@ -102,16 +102,26 @@ docker compose run --rm login -check      # 巡检现有账号
 
 ### token 从哪来（三选一）
 
-**① 一条命令（Mac / Windows，无需 Go）**
+**① 一条命令 → 剪贴板（三选一，按你机器上有什么）**
 
 ```bash
-node scripts/import-miaoshou-token.mjs --copy     # 解密并直接复制到剪贴板 ← 最常用
-node scripts/import-miaoshou-token.mjs            # 只打印
-node scripts/import-miaoshou-token.mjs --check    # 顺便联网校验是否有效
+# macOS 自带 Swift（零安装，推荐）
+swift scripts/import-miaoshou-token.swift --copy
+
+# 有 node 的环境
+node scripts/import-miaoshou-token.mjs --copy
+
+# 有 Go 的环境（本项目就是 Go；跨平台）
+go run ./cmd/login -copy
 ```
+
+都支持 `--check` / `-check` 顺手联网校验 token 是否有效；不加 `--copy` 则打印完整 token。
 
 原理：读 `catx-credential.json` 里的 `ssoTokenEnc`，用本机机器码派生密钥（`sha256("<IOPlatformUUID>:catpaw-desk-token-v2")`）
 做 AES-256-GCM 解密。脚本只在你自己的机器上跑，token 只写到本地 `/tmp/lc-miaoshou-token.txt`（0600）。
+
+> 为什么不用 ruby：macOS 自带 ruby 链接的是 LibreSSL，其 GCM 实现在 ruby 绑定里不可用，
+> 解这类 AEAD 密文会直接 `CipherError`。Swift（CryptoKit）/ Node / Go 三条都能正常工作。
 
 **② 从已导入的账号文件里抄**
 

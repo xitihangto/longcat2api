@@ -48,6 +48,8 @@ func main() {
 	check := flag.Bool("check", false, "仅校验已有账号")
 	cookie := flag.String("cookie", "", "校验 longcat.chat 网页 Cookie（留空则用 config.json 的 longcat_web.cookie）")
 	checkWeb := flag.Bool("check-web", false, "校验 longcat-web 通道 Cookie 登录态")
+	printTok := flag.Bool("print", false, "只解密并打印妙手 token（不写入账号池）")
+	copyTok := flag.Bool("copy", false, "把 token 复制到剪贴板（配合 -print 使用）")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -61,6 +63,24 @@ func main() {
 	up := upstream.New(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	if *printTok || *copyTok {
+		tk, err := tokenFromClient(*credPath)
+		if err != nil {
+			log.Fatalf("取出 token 失败: %v", err)
+		}
+		if *copyTok {
+			if err := clipboardWrite(tk); err != nil {
+				log.Printf("⚠️  写剪贴板失败(%v)，下面直接打印", err)
+				fmt.Println(tk)
+			} else {
+				log.Printf("✅ 妙手 token 已复制到剪贴板（%d 字符）", len(tk))
+			}
+		} else {
+			fmt.Println(tk)
+		}
+		return
+	}
 
 	if *checkWeb {
 		ck := strings.TrimSpace(*cookie)
@@ -174,6 +194,30 @@ func checkLongcatCookie(base, appkey, cookie string) (uid, name string, login in
 		return "", "", 0, fmt.Errorf("%s", out.Message)
 	}
 	return fmt.Sprint(out.Data.UID), fmt.Sprint(out.Data.Name), out.Data.LoginStatus, nil
+}
+
+// tokenFromClient 解密本机客户端凭据，只取 token（不落账号池）。
+func tokenFromClient(credPath string) (string, error) {
+	p := credPath
+	if p == "" {
+		p = defaultCredentialPath()
+	}
+	return readTokenFromClient(p)
+}
+
+// clipboardWrite 把文本写进系统剪贴板。
+func clipboardWrite(s string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		cmd = exec.Command("wl-copy")
+	}
+	cmd.Stdin = strings.NewReader(s)
+	return cmd.Run()
 }
 
 func defaultCredentialPath() string {
