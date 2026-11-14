@@ -3,6 +3,7 @@
 <p align="left">
   <a href="https://github.com/xitihangto/longcat2api/actions/workflows/docker-ghcr.yml"><img alt="docker-ghcr" src="https://github.com/xitihangto/longcat2api/actions/workflows/docker-ghcr.yml/badge.svg"></a>
   <a href="https://github.com/xitihangto/longcat2api/pkgs/container/longcat2api"><img alt="ghcr" src="https://img.shields.io/badge/ghcr.io-longcat2api-2496ED?logo=docker&logoColor=white"></a>
+  <a href="https://github.com/xitihangto/longcat2api/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/xitihangto/longcat2api?color=3ecf8e"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white">
   <img alt="API" src="https://img.shields.io/badge/API-OpenAI_Compatible-412991">
 </p>
@@ -94,7 +95,8 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 | 项 | 值 |
 |---|---|
-| 镜像 | `ghcr.io/xitihangto/longcat2api`（tag：`latest` / `sha-<短哈希>` / `v0.1.0`） |
+| 镜像 | `ghcr.io/xitihangto/longcat2api`（tag：`latest` / `0.1.0`=`v0.1.0` / `sha-<短哈希>`） |
+| 发版 | [v0.1.0](https://github.com/xitihangto/longcat2api/releases/tag/v0.1.0)（`git tag -a vX.Y.Z && git push origin vX.Y.Z` 即自动出多架构镜像） |
 | 平台 | `linux/amd64`, `linux/arm64` |
 | 自动构建 | 推 `v*` tag 或合入 `main` 触发 `.github/workflows/docker-ghcr.yml`（先跑 go vet + go test） |
 
