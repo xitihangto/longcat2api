@@ -132,6 +132,8 @@ func (c *Client) streamOnce(ctx context.Context, acc *account.Account, convID st
 	terminal := false
 	var lastMsgID string
 	text := *acc0
+	// 回写累积文本：重连时新连接要接着上次的进度去重
+	defer func() { *acc0 = text }()
 
 	handle := func(line string) error {
 		if !strings.HasPrefix(line, "data:") {
