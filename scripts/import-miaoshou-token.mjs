@@ -20,6 +20,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 const CHECK = process.argv.includes('--check');
+const COPY = process.argv.includes('--copy') || process.argv.includes('--clipboard');
 
 function credentialPath() {
   if (process.env.CATPaw_CRED) return process.env.CATPaw_CRED;
@@ -93,8 +94,21 @@ const mid = machineID();
 const token = decrypt(mid, cred.ssoTokenEnc);
 fs.writeFileSync('/tmp/lc-miaoshou-token.txt', token, { mode: 0o600 });
 
-console.log('✅ 已取出妙手 token（长度 ' + token.length + '）：');
-console.log(token);
+if (COPY) {
+  try {
+    const cmd = process.platform === 'darwin' ? 'pbcopy'
+      : process.platform === 'win32' ? 'clip' : 'wl-copy';
+    execSync(cmd, { input: token });
+    console.log('✅ 妙手 token 已复制到剪贴板（' + token.length + ' 字符），直接去面板粘贴即可');
+    console.log('   ' + token.slice(0, 12) + '…（其余已隐藏）');
+  } catch (e) {
+    console.log('⚠️  写剪贴板失败: ' + e.message + '，下面打印完整 token');
+    console.log(token);
+  }
+} else {
+  console.log('✅ 已取出妙手 token（长度 ' + token.length + '）：');
+  console.log(token);
+}
 console.log('\n已写入 /tmp/lc-miaoshou-token.txt（0600）');
 console.log('下一步：面板「妙手账号」卡片 → 粘贴 → 校验并导入');
 

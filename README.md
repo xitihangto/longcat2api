@@ -105,8 +105,9 @@ docker compose run --rm login -check      # 巡检现有账号
 **① 一条命令（Mac / Windows，无需 Go）**
 
 ```bash
-node scripts/import-miaoshou-token.mjs            # 解密客户端凭据并打印 token
-node scripts/import-miaoshou-token.mjs --check    # 顺便联网校验
+node scripts/import-miaoshou-token.mjs --copy     # 解密并直接复制到剪贴板 ← 最常用
+node scripts/import-miaoshou-token.mjs            # 只打印
+node scripts/import-miaoshou-token.mjs --check    # 顺便联网校验是否有效
 ```
 
 原理：读 `catx-credential.json` 里的 `ssoTokenEnc`，用本机机器码派生密钥（`sha256("<IOPlatformUUID>:catpaw-desk-token-v2")`）
