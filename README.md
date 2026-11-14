@@ -49,13 +49,27 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 ## Docker 部署
 
+镜像已发布到 GitHub Container Registry（amd64 / arm64 多架构，跟随 `main` 自动构建）：
+
 ```bash
-cp .env.example .env                 # 填 LONGCAT_API_KEY（可选 PUID/PGID、LONGCAT_TOKEN）
+docker pull ghcr.io/xitihangto/longcat2api:latest
+```
+
+```bash
+cp .env.example .env                        # 填 LONGCAT_API_KEY（可选 PUID/PGID、LONGCAT_TOKEN）
 cp config.example.json config/config.json   # 想改端口/模型再编辑
-docker compose up -d --build
+docker compose pull && docker compose up -d # 想本地构建：换成 docker compose up -d --build
 docker compose logs -f longcat2api
 curl -s http://127.0.0.1:8090/healthz
 ```
+
+| 项 | 值 |
+|---|---|
+| 镜像 | `ghcr.io/xitihangto/longcat2api`（tag：`latest` / `sha-<短哈希>` / `v0.1.0`） |
+| 平台 | `linux/amd64`, `linux/arm64` |
+| 自动构建 | 推 `v*` tag 或合入 `main` 触发 `.github/workflows/docker-ghcr.yml`（先跑 go vet + go test） |
+
+> GHCR 包若为私有：`echo <PAT> | docker login ghcr.io -u <用户名> --password-stdin`，PAT 只需 `read:packages`。
 
 ### 账号怎么进容器
 

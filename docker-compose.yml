@@ -1,13 +1,15 @@
 # longcat2api · 妙手(CatPaw) → OpenAI 兼容网关
 #
-# 用法：
-#   1) cp .env.example .env && cp config.example.json config.json   # 填好 api_key
+# 用法（从 GitHub 拉官方镜像）：
+#   1) cp .env.example .env && cp config.example.json config/config.json   # 填好 api_key
 #   2) 准备账号（二选一）：
-#      a. 宿主机已登录妙手客户端 → 在仓库目录执行 `go run ./cmd/login`
-#         （会解密本机凭据并写入 ./data/accounts.json，容器挂载即可用）
+#      a. 宿主机已登录妙手客户端 → 执行 `go run ./cmd/login`
+#         （解密本机凭据写入 ./data/accounts.json，容器挂载即可用）
 #      b. 直接把 token 写进 .env 的 LONGCAT_TOKEN，首次启动自动导入
-#   3) docker compose up -d
+#   3) docker compose pull && docker compose up -d
 #   4) curl -N http://127.0.0.1:8090/v1/chat/completions -H 'Authorization: Bearer <api_key>' ...
+#
+# 想本地构建而不是拉镜像：docker compose up -d --build
 #
 # 注意：容器内无法读取 macOS/Windows 客户端的加密凭据（机器标识不同），
 #       token 必须由宿主机工具或 .env 注入。
@@ -19,7 +21,8 @@ services:
       args:
         # 国内网络可换成 https://goproxy.cn,direct
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: longcat2api:${TAG:-0.1.0}
+    # 默认拉 GHCR 上的多架构镜像（amd64/arm64）；本地构建用 --build
+    image: ghcr.io/xitihangto/longcat2api:${TAG:-latest}
     container_name: longcat2api
     restart: unless-stopped
 
@@ -75,7 +78,8 @@ services:
       context: .
       args:
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: longcat2api:${TAG:-0.1.0}
+    # 默认拉 GHCR 上的多架构镜像（amd64/arm64）；本地构建用 --build
+    image: ghcr.io/xitihangto/longcat2api:${TAG:-latest}
     container_name: longcat2api-login
     user: "${PUID:-0}:${PGID:-0}"
     environment:
