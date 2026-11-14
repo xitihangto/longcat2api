@@ -72,6 +72,36 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 > ⚠️ 两条通道都只提供**文本补全**：不吃 `tools` / `function calling`，不能当 Claude Code 那类 agent 的后端。
 
+## 导入妙手账号（LongCat-2.0 通道）
+
+三种方式，都不需要在 NAS 上装任何东西：
+
+**A. 面板粘贴（推荐）**
+
+面板顶部「妙手账号」卡片 → 粘贴 token → 「校验并导入」。支持：
+
+- 裸 token（`AgGF…`）
+- 带 `access-token:` / `X-Auth-Token:` / `Authorization: Bearer` 头的 **Copy as cURL** 整段
+- 含 `"access_token":"…"` 的 JSON
+
+校验走上游 `current-user`，成功即入池并**立即生效**（无需重启）。
+
+**B. 宿主机导入**
+
+```bash
+go run ./cmd/login                 # Mac/PC 上已登录妙手客户端：自动解密 + 校验 + 入库
+go run ./cmd/login -token 'AgGF…'  # 或直接给 token / cURL
+```
+
+**C. 容器内工具容器**
+
+```bash
+docker compose run --rm login -token 'AgGF…'
+docker compose run --rm login -check      # 巡检现有账号
+```
+
+> token 从哪来：Mac 上跑一次 `go run ./cmd/login`，然后从 `data/accounts.json` 里复制 `token` 字段。
+
 ## 登录 longcat（拿 Cookie）
 
 只有**一次**操作，cookie 有效期很长，之后不用再管。三条路，按方便程度：

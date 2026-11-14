@@ -36,6 +36,7 @@ import (
 
 	"github.com/linquin/longcat2api/internal/account"
 	"github.com/linquin/longcat2api/internal/config"
+	"github.com/linquin/longcat2api/internal/paste"
 	"github.com/linquin/longcat2api/internal/upstream"
 )
 
@@ -93,6 +94,14 @@ func main() {
 	}
 
 	tk := strings.TrimSpace(*token)
+	if tk != "" {
+		// 支持裸 token / 带 access-token 头的 cURL / JSON，和面板导入一致
+		parsed, perr := paste.ExtractMiaoshouToken(tk)
+		if perr != nil {
+			log.Fatalf("解析 token 失败: %v", perr)
+		}
+		tk = parsed
+	}
 	if tk == "" {
 		p := *credPath
 		if p == "" {

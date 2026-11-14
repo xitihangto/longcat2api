@@ -22,7 +22,7 @@ import (
 	"github.com/linquin/longcat2api/internal/upstream"
 )
 
-const appVersion = "0.3.1"
+const appVersion = "0.3.2"
 
 // cfgPathForSave 返回配置文件的绝对路径，供面板热写回。
 func cfgPathForSave(p string) string {

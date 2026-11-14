@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/linquin/longcat2api/internal/account"
 	"github.com/linquin/longcat2api/internal/config"
+	"github.com/linquin/longcat2api/internal/paste"
 	"github.com/linquin/longcat2api/internal/pool"
 	"github.com/linquin/longcat2api/internal/upstream"
 )
@@ -58,6 +58,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/chat/completions", s.auth(s.handleChat))
 	s.mux.HandleFunc("/panel/api/overview", s.auth(s.handleOverview))
 	s.mux.HandleFunc("/panel/api/accounts", s.auth(s.handleAccounts))
+	s.mux.HandleFunc("/panel/api/accounts/import", s.auth(s.handleAccountImport))
 	s.mux.HandleFunc("/panel/api/channel", s.auth(s.handleChannelStatus))
 	s.mux.HandleFunc("/panel/api/channel/login", s.auth(s.handleChannelLogin))
 	s.mux.HandleFunc("/panel", func(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +232,72 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// ---------------- 妙手账号导入（粘贴 token / cURL） ----------------
+
+// handleAccountImport 接收妙手 access token，校验后写入账号池（热生效，无需重启）。
+//
+// 接受的粘贴形态：
+//  1. 裸 token（AgGF...）
+//  2. "access-token: xxx" / "X-Auth-Token: xxx" / "Authorization: Bearer xxx"
+//  3. 浏览器/Electron DevTools「Copy as cURL」整段（自动从中抠出上述 header）
+//  4. 含 "access_token":"xxx" 的 JSON
+func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "只支持 POST")
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+		Raw   string `json:"raw"`
+		Name  string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", "请求体解析失败: "+err.Error())
+		return
+	}
+	input := strings.TrimSpace(body.Token)
+	if input == "" {
+		input = strings.TrimSpace(body.Raw)
+	}
+	if input == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_request", "没有提供 token")
+		return
+	}
+	token, err := paste.ExtractMiaoshouToken(input)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_token", err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	uid, uname, err := s.up.CheckToken(ctx, token)
+	if err != nil {
+		var ue *upstream.Error
+		if errors.As(err, &ue) && ue.Kind == upstream.KindAuth {
+			writeErr(w, http.StatusUnauthorized, "invalid_token", "token 无效或已过期（妙手返回鉴权失败）："+ue.Msg)
+			return
+		}
+		writeErr(w, http.StatusBadGateway, "check_failed", "校验失败: "+err.Error())
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = uname
+	}
+	acc := &account.Account{Name: name, Token: token, UID: uid, Enabled: true, Note: "imported via panel"}
+	if err := s.pool.Add(acc); err != nil {
+		writeErr(w, http.StatusInternalServerError, "save_failed", "写入账号失败: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok": true, "uid": uid, "name": name,
+		"accounts_total": s.cfgAccountCount(),
+		"token_length":   len(token),
+	})
+}
+
 // ---------------- longcat-web 通道凭据（面板登录） ----------------
 
 func (s *Server) handleChannelStatus(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +342,7 @@ func (s *Server) handleChannelLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "没有提供 Cookie")
 		return
 	}
-	cookie, err := extractCookie(input)
+	cookie, err := paste.ExtractCookie(input)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_cookie", err.Error())
 		return
@@ -314,43 +381,6 @@ func (s *Server) handleChannelLogin(w http.ResponseWriter, r *http.Request) {
 		"persisted":     saved,
 		"cookie_length": len(cookie),
 	})
-}
-
-// extractCookie 支持三种粘贴形态：
-//  1. 直接一整串 Cookie（"a=1; b=2"）
-//  2. 浏览器 DevTools「Copy as cURL」的整段命令（从中抠 -H 'cookie: ...'）
-//  3. 只粘了若干 "name=value" 片段
-func extractCookie(input string) (string, error) {
-	in := strings.TrimSpace(input)
-	low := strings.ToLower(in)
-	if strings.HasPrefix(low, "curl ") || strings.Contains(low, "curl ") && strings.Contains(low, "-h ") {
-		// 从 curl 里找 cookie 头（单双引号都支持）
-		for _, re := range []string{
-			`(?i)-H\s+'cookie:\s*([^']+)'`,
-			`(?i)-H\s+"cookie:\s*([^"]+)"`,
-			`(?i)--cookie\s+'([^']+)'`,
-			`(?i)--cookie\s+"([^"]+)"`,
-			`(?i)-b\s+'([^']+)'`,
-			`(?i)-b\s+"([^"]+)"`,
-		} {
-			if m, _ := regexp.Compile(re); m != nil {
-				if sub := m.FindStringSubmatch(in); len(sub) > 1 {
-					return strings.TrimSpace(sub[1]), nil
-				}
-			}
-		}
-		return "", fmt.Errorf("从 cURL 里没找到 cookie 头，请直接粘贴 Cookie 字符串")
-	}
-	// 去掉前缀 "Cookie:"，规整换行/空格
-	c := strings.TrimSpace(in)
-	c = strings.TrimPrefix(strings.TrimPrefix(c, "Cookie:"), "cookie:")
-	c = strings.ReplaceAll(c, "\n", "; ")
-	c = strings.ReplaceAll(c, "\r", "")
-	c = strings.Join(strings.Fields(c), " ")
-	if !strings.Contains(c, "=") {
-		return "", fmt.Errorf("这不像 Cookie（缺少 name=value），请从浏览器 Network → 任意请求 → Request Headers → Cookie 复制")
-	}
-	return c, nil
 }
 
 // ---------------- Chat Completions ----------------

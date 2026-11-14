@@ -107,6 +107,14 @@ docker compose ps
 
 ---
 
+## 4.4 妙手账号也可以在面板里粘贴（0.3.2+）
+
+以前只能靠把 Mac 上的 `accounts.json` 拷过来。现在面板顶部多了「妙手账号」卡片：
+
+- 在 Mac 上跑一次 `go run ./cmd/login`，从 `data/accounts.json` 复制 `token`（`AgGF…`）
+- 或者直接从妙手客户端的请求里复制带 `access-token` 头的 cURL
+- 粘进面板 → 「校验并导入」→ 立即生效，账号池数量 +1
+
 ## 4.5 可选：启用免费 LongCat-2.5（国际站）
 
 0.3.0 起网关自带上第二条通道（`longcat.ai` 网页版，免费 LongCat-2.5）：
@@ -175,10 +183,10 @@ docker compose pull && docker compose up -d     # 升级到最新镜像
 
 | 源 | 写法 |
 |---|---|
-| 南京大学（默认，匿名） | `ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.1` |
-| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api:0.3.1` |
-| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api:0.3.1` |
-| 官方（有代理时） | `ghcr.io/xitihangto/longcat2api:0.3.1` |
+| 南京大学（默认，匿名） | `ghcr.nju.edu.cn/xitihangto/longcat2api:0.3.2` |
+| 1ms.run | `ghcr.1ms.run/xitihangto/longcat2api:0.3.2` |
+| dockerproxy | `ghcr.dockerproxy.net/xitihangto/longcat2api:0.3.2` |
+| 官方（有代理时） | `ghcr.io/xitihangto/longcat2api:0.3.2` |
 
 改完 `docker compose pull && docker compose up -d`。
 

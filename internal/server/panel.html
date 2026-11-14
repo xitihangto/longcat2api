@@ -62,6 +62,16 @@
 
   <div id="hint" class="notice" hidden></div>
 
+  <div class="chan" id="accountCard">
+    <h3>妙手账号（LongCat-2.0 通道）</h3>
+    <div class="line" id="accLine">读取中…</div>
+    <textarea id="msTok" placeholder="粘贴妙手 access token（AgGF…）；也支持带 access-token 头的 cURL，或含 access_token 的 JSON"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button onclick="importMiaoshou()">校验并导入</button>
+    </div>
+    <div class="msg" id="msMsg"></div>
+  </div>
+
   <div class="chan" id="chanCard">
     <h3 id="chanTitle">longcat 网页通道（免费 LongCat-2.5）</h3>
     <div class="line" id="chanLine">读取中…</div>
@@ -150,8 +160,9 @@ const CH = { status: null };
 
 async function loadChannel() {
   try {
-    const st = await api("/panel/api/channel");
+    const [st, accs] = await Promise.all([api("/panel/api/channel"), api("/panel/api/accounts")]);
     CH.status = st;
+    CH.accounts = accs;
     const modeTxt = st.mode === "auth" ? "已登录（Cookie 登录态）" : "游客（免登录）";
     const ck = st.has_cookie ? '<b style="color:var(--ok)">已保存 Cookie</b>' : "未保存 Cookie";
     const cool = st.cooldown_left_s > 0 ? `<b style="color:var(--warn)">冷却 ${st.cooldown_left_s}s</b>` : "未限流";
@@ -163,6 +174,11 @@ async function loadChannel() {
     $("chanLine").innerHTML =
       `<span>状态：<b>${modeTxt}</b></span><span>${ck}</span><span>${cool}</span>` +
       `<span>模型：<b>${(st.models || []).join(", ") || "-"}</b></span>`;
+    const n = (CH.accounts || []).length;
+    const healthy = (CH.accounts || []).filter((a) => a.healthy).length;
+    $("accLine").innerHTML = n
+      ? `<span>账号数：<b>${n}</b>（健康 <b>${healthy}</b>）</span><span>说明：LongCat-2.0 走妙手账号池；LongCat-2.5 的 Cookie 属通道凭据，不在这里</span>`
+      : `<span style="color:var(--warn)">还没有妙手账号：粘贴 token 导入，或本机跑 go run ./cmd/login</span>`;
   } catch (e) {
     $("chanLine").textContent = "通道状态读取失败：" + e.message;
   }
@@ -187,6 +203,33 @@ async function pasteCookie() {
   } catch {
     setCkMsg("浏览器不允许读剪贴板，请手动 Ctrl/Cmd+V 粘到下面文本框。", "bad");
     $("ck").focus();
+  }
+}
+
+async function importMiaoshou() {
+  const v = $("msTok").value.trim();
+  const el = $("msMsg");
+  if (!v) { el.className = "msg bad"; el.textContent = "请先粘贴 token"; return; }
+  el.className = "msg"; el.textContent = "校验中…";
+  try {
+    const r = await fetch("/panel/api/accounts/import", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+      body: JSON.stringify({ token: v }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      el.className = "msg bad";
+      el.textContent = d.error ? d.error.message : "HTTP " + r.status;
+      return;
+    }
+    $("msTok").value = "";
+    el.className = "msg ok";
+    el.textContent = `✅ 已导入：${d.name} (uid ${d.uid})，账号池共 ${d.accounts_total} 个，立即可用`;
+    load(); loadChannel();
+  } catch (e) {
+    el.className = "msg bad";
+    el.textContent = "请求失败：" + e.message;
   }
 }
 

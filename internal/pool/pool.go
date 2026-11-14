@@ -45,6 +45,18 @@ func New(store *account.Store, cfg *config.Config) *Pool {
 // ErrNoAccount 没有可用账号。
 var ErrNoAccount = errors.New("没有可用账号（全部冷却或未配置）")
 
+// Add 追加账号（面板导入用），写盘后立即可被 Acquire 选中。
+func (p *Pool) Add(a *account.Account) error {
+	if err := p.store.Add(a); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.stateFor(a.ID)
+	p.persistLocked()
+	p.mu.Unlock()
+	return nil
+}
+
 // Acquire 选一个账号并登记在途。调用方必须 Release。
 func (p *Pool) Acquire() (*account.Account, error) {
 	accs := p.store.List()
