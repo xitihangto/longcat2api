@@ -100,7 +100,32 @@ docker compose run --rm login -token 'AgGF…'
 docker compose run --rm login -check      # 巡检现有账号
 ```
 
-> token 从哪来：Mac 上跑一次 `go run ./cmd/login`，然后从 `data/accounts.json` 里复制 `token` 字段。
+### token 从哪来（三选一）
+
+**① 一条命令（Mac / Windows，无需 Go）**
+
+```bash
+node scripts/import-miaoshou-token.mjs            # 解密客户端凭据并打印 token
+node scripts/import-miaoshou-token.mjs --check    # 顺便联网校验
+```
+
+原理：读 `catx-credential.json` 里的 `ssoTokenEnc`，用本机机器码派生密钥（`sha256("<IOPlatformUUID>:catpaw-desk-token-v2")`）
+做 AES-256-GCM 解密。脚本只在你自己的机器上跑，token 只写到本地 `/tmp/lc-miaoshou-token.txt`（0600）。
+
+**② 从已导入的账号文件里抄**
+
+之前跑过 `go run ./cmd/login` 的话，直接取 `data/accounts.json` 里第一条的 `token` 字段。
+
+**③ 妙手客户端 DevTools 里抠**
+
+妙手是 Electron，菜单里有「开发者工具」（快捷键 `Cmd+Option+I` / `Ctrl+Alt+I`）：
+
+1. 打开开发者工具 → **Network**
+2. 随便发一条消息，找 `nocode.cn` 的请求
+3. 右键该请求 → **Copy as cURL**（或看 Request Headers 里的 `access-token`）
+4. 整段粘进面板「妙手账号」卡片 → 校验并导入
+
+> token 有效期通常很长；过期（日志出现 `upstream auth`）就重复上面任一步重新取一次。
 
 ## 登录 longcat（拿 Cookie）
 
