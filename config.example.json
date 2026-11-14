@@ -23,15 +23,48 @@
   },
   "models": {
     "catalog": [
-      { "name": "LongCat-2.0", "upstream": "LongCat-2.0", "desc": "美团 LongCat 2.0（妙手默认模型）" }
+      {
+        "name": "LongCat-2.5",
+        "upstream": "LongCat-2.5",
+        "provider": "longcat-web",
+        "desc": "美团 LongCat 2.5（longcat.chat 网页通道，免登录）"
+      },
+      {
+        "name": "LongCat-2.0",
+        "upstream": "LongCat-2.0",
+        "provider": "catpaw",
+        "desc": "美团 LongCat 2.0（妙手 CatPaw 账号池）"
+      }
     ],
     "alias": {
       "longcat": "LongCat-2.0",
       "longcat-2.0": "LongCat-2.0",
-      "auto": "LongCat-2.0",
-      "catpaw": "LongCat-2.0"
+      "longcat2.0": "LongCat-2.0",
+      "catpaw": "LongCat-2.0",
+      "longcat-2.5": "LongCat-2.5",
+      "longcat2.5": "LongCat-2.5",
+      "2.5": "LongCat-2.5",
+      "web": "LongCat-2.5"
     },
     "hidden": []
   },
-  "logging": { "log_requests": true, "log_frame_debug": false }
+  "logging": {
+    "log_requests": true,
+    "log_frame_debug": false
+  },
+  "longcat_web": {
+    "_comment": "longcat.chat 网页通道：免费 LongCat-2.5。oversea 模式免登录；cn 模式需 cookie（登录后额度更稳）。",
+    "enabled": true,
+    "base": "https://longcat.chat",
+    "appkey": "fe_com.sankuai.friday.fe.longcat",
+    "mode": "oversea",
+    "cookie": "",
+    "agent_id": "1",
+    "reason_enabled": false,
+    "search_enabled": false,
+    "min_interval_ms": 1500,
+    "cooldown": "90s",
+    "fallback_to_catpaw": true,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  }
 }

@@ -79,6 +79,9 @@ type Result struct {
 	Model          string
 	Text           string
 	Status         string // completed / canceled / error
+	// PromptTokens / CompletionTokens 上游给的真实用量；为 0 表示未知（妙手通道不给）
+	PromptTokens     int
+	CompletionTokens int
 }
 
 // Chat 执行一次完整对话。

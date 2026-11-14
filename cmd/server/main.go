@@ -21,7 +21,7 @@ import (
 	"github.com/linquin/longcat2api/internal/upstream"
 )
 
-const appVersion = "0.1.2"
+const appVersion = "0.2.0"
 
 func main() {
 	cfgPath := flag.String("config", "config.json", "配置文件路径（不存在时自动生成推荐配置）")
@@ -66,7 +66,8 @@ func main() {
 
 	p := pool.New(store, cfg)
 	up := upstream.New(cfg)
-	srv := server.New(cfg, p, up, appVersion)
+	lw := upstream.NewLongcatWeb(cfg)
+	srv := server.New(cfg, p, up, lw, appVersion)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
@@ -76,7 +77,11 @@ func main() {
 
 	go func() {
 		log.Printf("longcat2api %s 启动 → http://127.0.0.1%s  (账号 %d 个)", appVersion, cfg.Listen, store.Enabled())
-		log.Printf("上游: chat=%s stream=%s model=%s", cfg.Upstream.ChatBase, cfg.Upstream.StreamBase, cfg.Upstream.Model)
+		log.Printf("通道1 妙手: chat=%s stream=%s model=%s", cfg.Upstream.ChatBase, cfg.Upstream.StreamBase, cfg.Upstream.Model)
+		if cfg.LongcatWeb.Enabled {
+			log.Printf("通道2 longcat-web: %s mode=%s model=LongCat-2.5（免登录免费，限流节流 %dms）",
+				cfg.LongcatWeb.Base, cfg.LongcatWeb.Mode, cfg.LongcatWeb.MinIntervalMS)
+		}
 		if cfg.APIKey != "" {
 			log.Printf("面板/接口已启用 API Key 保护；浏览器首次进入面板可直接用：http://127.0.0.1%s/panel?key=<你的 key>", cfg.Listen)
 		} else {

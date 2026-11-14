@@ -48,11 +48,20 @@ func TestBuildPromptEmpty(t *testing.T) {
 
 func TestResolveModelAlias(t *testing.T) {
 	s := &Server{cfg: configDefaultForTest()}
-	if got, err := s.resolveModel("longcat"); err != nil || got != "LongCat-2.0" {
-		t.Fatalf("别名解析失败: %q %v", got, err)
+	cases := []struct {
+		in, model, provider string
+	}{
+		{"longcat", "LongCat-2.0", "catpaw"},
+		{"longcat-2.5", "LongCat-2.5", "longcat-web"},
+		{"2.5", "LongCat-2.5", "longcat-web"},
+		{"LongCat-2.5", "LongCat-2.5", "longcat-web"},
+		{"unknown-model", "unknown-model", "catpaw"},
 	}
-	if got, err := s.resolveModel("unknown-model"); err != nil || got != "unknown-model" {
-		t.Fatalf("未知模型应透传: %q %v", got, err)
+	for _, c := range cases {
+		got, prov, err := s.resolveModel(c.in)
+		if err != nil || got != c.model || prov != c.provider {
+			t.Errorf("resolveModel(%q) = (%q,%q,%v)，期望 (%q,%q)", c.in, got, prov, err, c.model, c.provider)
+		}
 	}
 }
 

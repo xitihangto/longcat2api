@@ -19,9 +19,10 @@
 
 | 能力 | 状态 |
 |---|---|
+| 双通道：妙手 2.0 + longcat-web 2.5 | ✅ 按模型名自动路由 |
 | `POST /v1/chat/completions` 非流式 | ✅ 实测通过 |
 | `POST /v1/chat/completions` 流式（SSE，真增量） | ✅ 实测通过 |
-| `GET /v1/models` | ✅ |
+| `GET /v1/models` | ✅ 列出 `LongCat-2.5`（免费网页通道）与 `LongCat-2.0`（妙手） |
 | `GET /healthz` / `/panel/api/*` 观测接口 | ✅ |
 | 妙手登录态一键导入（本机凭据解密） | ✅ `go run ./cmd/login` |
 | 多账号池 + 熔断/冷却/在途负载 | ✅ |
@@ -57,6 +58,18 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 面板同理受 `api_key` 保护：浏览器直接开 `/panel?key=<你的 api_key>` 会自动记住 key；
 手动进入则在页面输入框里填同一个 key 再点「保存并刷新」。
+
+## 两条通道
+
+| 模型 | 通道 | 凭据 | 说明 |
+|---|---|---|---|
+| `LongCat-2.5` | longcat.chat 网页通道 | **免登录**（可选 Cookie） | 免费，上游限流较凶；有真实 token 用量 |
+| `LongCat-2.0` | 妙手 CatPaw 账号池 | 妙手登录态（`cmd/login` 导入） | 稳定不限流，模型固定 2.0 |
+
+客户端只写模型名：`LongCat-2.5` / `longcat-2.5` / `2.5` 走免费 2.5；`LongCat-2.0` / `longcat` 走妙手。
+2.5 被限流时会自动回落到 2.0（`longcat_web.fallback_to_catpaw`），响应头 `X-Longcat-Channel` 标明实际通道。
+
+> ⚠️ 两条通道都只提供**文本补全**：不吃 `tools` / `function calling`，不能当 Claude Code 那类 agent 的后端。
 
 ## Docker 部署
 

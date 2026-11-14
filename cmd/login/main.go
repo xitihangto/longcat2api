@@ -24,7 +24,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +45,8 @@ func main() {
 	credPath := flag.String("credential", "", "catx-credential.json 路径（默认自动探测）")
 	name := flag.String("name", "", "账号备注名")
 	check := flag.Bool("check", false, "仅校验已有账号")
+	cookie := flag.String("cookie", "", "校验 longcat.chat 网页 Cookie（留空则用 config.json 的 longcat_web.cookie）")
+	checkWeb := flag.Bool("check-web", false, "校验 longcat-web 通道 Cookie 登录态")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -56,6 +60,25 @@ func main() {
 	up := upstream.New(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	if *checkWeb {
+		ck := strings.TrimSpace(*cookie)
+		if ck == "" {
+			ck = cfg.LongcatWeb.Cookie
+		}
+		if ck == "" {
+			log.Fatal("没有 cookie：用 -cookie '<浏览器复制的 Cookie>' 或写进 config.json 的 longcat_web.cookie")
+		}
+		uid, name, login, err := checkLongcatCookie(cfg.LongcatWeb.Base, cfg.LongcatWeb.AppKey, ck)
+		if err != nil {
+			log.Fatalf("❌ longcat.chat 校验失败: %v", err)
+		}
+		if login == 0 {
+			log.Fatalf("❌ Cookie 无效或已过期（loginStatus=0）")
+		}
+		log.Printf("✅ Cookie 有效：uid=%s name=%s loginStatus=%d", uid, name, login)
+		return
+	}
 
 	if *check {
 		for _, a := range store.List() {
@@ -102,6 +125,46 @@ func main() {
 		log.Fatalf("写入账号失败: %v", err)
 	}
 	log.Printf("✅ 已导入账号 uid=%s user=%s → %s", uid, uname, cfg.AccountsFile)
+}
+
+// checkLongcatCookie 用 /api/v1/user-current 验证 longcat.chat 登录态。
+func checkLongcatCookie(base, appkey, cookie string) (uid, name string, login int, err error) {
+	if strings.TrimSpace(base) == "" {
+		base = "https://longcat.chat"
+	}
+	if strings.TrimSpace(appkey) == "" {
+		appkey = "fe_com.sankuai.friday.fe.longcat"
+	}
+	req, _ := http.NewRequest(http.MethodGet, strings.TrimRight(base, "/")+"/api/v1/user-current", nil)
+	req.Header.Set("m-appkey", appkey)
+	req.Header.Set("origin", base)
+	req.Header.Set("referer", base+"/t")
+	req.Header.Set("x-requested-with", "XMLHttpRequest")
+	req.Header.Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36")
+	req.Header.Set("cookie", cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			UserID      any `json:"userId"`
+			UID         any `json:"uid"`
+			Name        any `json:"name"`
+			LoginStatus int `json:"loginStatus"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", "", 0, fmt.Errorf("响应解析失败: %s", string(raw))
+	}
+	if out.Code != 0 {
+		return "", "", 0, fmt.Errorf("%s", out.Message)
+	}
+	return fmt.Sprint(out.Data.UID), fmt.Sprint(out.Data.Name), out.Data.LoginStatus, nil
 }
 
 func defaultCredentialPath() string {

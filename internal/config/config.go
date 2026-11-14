@@ -16,14 +16,15 @@ import (
 
 // Config 是网关的全部配置，字段与 config.json 一一对应。
 type Config struct {
-	Listen       string   `json:"listen"`
-	APIKey       string   `json:"api_key"`
-	AccountsFile string   `json:"accounts_file"`
-	StateFile    string   `json:"state_file"`
-	Upstream     Upstream `json:"upstream"`
-	Cooldown     Cooldown `json:"cooldown"`
-	Models       Models   `json:"models"`
-	Logging      Logging  `json:"logging"`
+	Listen       string     `json:"listen"`
+	APIKey       string     `json:"api_key"`
+	AccountsFile string     `json:"accounts_file"`
+	StateFile    string     `json:"state_file"`
+	Upstream     Upstream   `json:"upstream"`
+	LongcatWeb   LongcatWeb `json:"longcat_web"`
+	Cooldown     Cooldown   `json:"cooldown"`
+	Models       Models     `json:"models"`
+	Logging      Logging    `json:"logging"`
 }
 
 // Upstream 描述妙手（CatPaw）上游的地址与协议常量。
@@ -54,6 +55,37 @@ type Upstream struct {
 	UserAgent string `json:"user_agent"`
 }
 
+// LongcatWeb 是 longcat.chat 网页通道（免费 LongCat-2.5）。
+//
+// 协议见 docs/PROTOCOL.md「longcat.chat 网页通道」。
+type LongcatWeb struct {
+	// Enabled 打开该通道（默认 true：免登录即可用）
+	Enabled bool `json:"enabled"`
+	// Base 站点地址
+	Base string `json:"base"`
+	// AppKey 前端固定 appkey，缺省即官方值
+	AppKey string `json:"appkey"`
+	// Mode "oversea"（默认，免登录）或 "cn"（需登录 Cookie）
+	Mode string `json:"mode"`
+	// Cookie 仅 cn 模式需要：浏览器登录 longcat.chat 后复制整串 Cookie
+	Cookie string `json:"cookie"`
+	// AgentID 上游 agentId，默认 "1"
+	AgentID string `json:"agent_id"`
+	// ReasonEnabled 让上游输出思考内容（会通过 reasoning_content 回给客户端）
+	ReasonEnabled bool `json:"reason_enabled"`
+	// SearchEnabled 上游联网搜索
+	SearchEnabled bool `json:"search_enabled"`
+	// MinIntervalMS 两次请求的最小间隔（毫秒）。上游对同一来源限流很凶，
+	// 串行节流是避免 429 的最有效手段。
+	MinIntervalMS int `json:"min_interval_ms"`
+	// Cooldown 命中 429 后的冷却时长
+	Cooldown string `json:"cooldown"`
+	// FallbackToCatpaw 该通道失败时是否自动回落到妙手 2.0
+	FallbackToCatpaw bool `json:"fallback_to_catpaw"`
+	// UserAgent 出站 UA
+	UserAgent string `json:"user_agent"`
+}
+
 // Cooldown 账号冷却策略。
 type Cooldown struct {
 	// SoftRate 429/限流类错误的冷却时长，按次指数退避。
@@ -78,6 +110,8 @@ type Models struct {
 type ModelEntry struct {
 	Name     string `json:"name"`
 	Upstream string `json:"upstream"`
+	// Provider 决定这条模型走哪条通道：catpaw（妙手账号池）| longcat-web（longcat.chat）
+	Provider string `json:"provider"`
 	Desc     string `json:"desc"`
 }
 
@@ -124,16 +158,32 @@ func Default() *Config {
 			ConnectRetries:      3,
 			UserAgent:           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) CatPaw/2026.1110.1503 Chrome/140.0.0.0 Safari/537.36",
 		},
+		LongcatWeb: LongcatWeb{
+			Enabled:          true,
+			Base:             "https://longcat.chat",
+			AppKey:           "fe_com.sankuai.friday.fe.longcat",
+			Mode:             "oversea",
+			AgentID:          "1",
+			MinIntervalMS:    1500,
+			Cooldown:         "90s",
+			FallbackToCatpaw: true,
+			UserAgent:        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+		},
 		Cooldown: Cooldown{SoftRate: "600s", SoftRateMax: "2h", AuthFail: "30m"},
 		Models: Models{
 			Catalog: []ModelEntry{
-				{Name: "LongCat-2.0", Upstream: "LongCat-2.0", Desc: "美团 LongCat 2.0（妙手默认模型）"},
+				{Name: "LongCat-2.5", Upstream: "LongCat-2.5", Provider: "longcat-web", Desc: "美团 LongCat 2.5（longcat.chat 免费通道，免登录）"},
+				{Name: "LongCat-2.0", Upstream: "LongCat-2.0", Provider: "catpaw", Desc: "美团 LongCat 2.0（妙手 CatPaw 账号池）"},
 			},
 			Alias: map[string]string{
 				"longcat":     "LongCat-2.0",
 				"longcat-2.0": "LongCat-2.0",
-				"auto":        "LongCat-2.0",
+				"longcat2.0":  "LongCat-2.0",
 				"catpaw":      "LongCat-2.0",
+				"longcat-2.5": "LongCat-2.5",
+				"longcat2.5":  "LongCat-2.5",
+				"2.5":         "LongCat-2.5",
+				"web":         "LongCat-2.5",
 			},
 			Hidden: []string{},
 		},
@@ -194,6 +244,23 @@ func (c *Config) applyEnv() {
 	if v := strings.TrimSpace(os.Getenv("LONGCAT_FIRST_BYTE_SECONDS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Upstream.FirstByteSeconds = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_ENABLED")); v != "" {
+		c.LongcatWeb.Enabled = v == "1" || strings.EqualFold(v, "true")
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_BASE")); v != "" {
+		c.LongcatWeb.Base = strings.TrimRight(v, "/")
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_MODE")); v != "" {
+		c.LongcatWeb.Mode = v
+	}
+	if v := os.Getenv("LONGCAT_WEB_COOKIE"); strings.TrimSpace(v) != "" {
+		c.LongcatWeb.Cookie = strings.TrimSpace(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_WEB_MIN_INTERVAL_MS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			c.LongcatWeb.MinIntervalMS = n
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("LONGCAT_LOG_REQUESTS")); v != "" {
@@ -267,6 +334,29 @@ func (c *Config) fill() {
 	if c.Upstream.ConnectRetries <= 0 {
 		c.Upstream.ConnectRetries = d.Upstream.ConnectRetries
 	}
+	lw := &c.LongcatWeb
+	if lw.Base == "" {
+		lw.Base = d.LongcatWeb.Base
+	}
+	if lw.AppKey == "" {
+		lw.AppKey = d.LongcatWeb.AppKey
+	}
+	if lw.Mode == "" {
+		lw.Mode = d.LongcatWeb.Mode
+	}
+	if lw.AgentID == "" {
+		lw.AgentID = d.LongcatWeb.AgentID
+	}
+	if lw.MinIntervalMS <= 0 {
+		lw.MinIntervalMS = d.LongcatWeb.MinIntervalMS
+	}
+	if lw.Cooldown == "" {
+		lw.Cooldown = d.LongcatWeb.Cooldown
+	}
+	if lw.UserAgent == "" {
+		lw.UserAgent = d.LongcatWeb.UserAgent
+	}
+	lw.Base = strings.TrimRight(lw.Base, "/")
 	if len(c.Models.Catalog) == 0 {
 		c.Models.Catalog = d.Models.Catalog
 	}

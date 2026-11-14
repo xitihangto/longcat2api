@@ -123,6 +123,85 @@ macOS 路径：`~/Library/Application Support/catpaw-moon/catx-credential.json`
    `#user-query\nHere is the user's actual question or request:\n<user-query>…</user-query>\n#current-route…`
    这是官方行为（`isAgent:true` 时），对普通问答无副作用。
 
+## 3.5 longcat.chat 网页通道（免费 LongCat-2.5）
+
+与妙手完全独立的一条线：**longcat.chat 网页前端的对话接口**，实测返回 `LongCat-2.5-Agent`。
+
+### 3.5.1 两个模式
+
+| 模式 | 端点 | 鉴权 | 额度 |
+|---|---|---|---|
+| `oversea`（默认） | `POST /api/v1/chat-completion-oversea-V2` | **无需任何凭据** | 网页游客配额，**限流很凶** |
+| `cn` | `POST /api/v1/session-create` → `POST /api/v1/chat-completion-V2` | Cookie（登录态） | 账号额度，稳定得多 |
+
+固定请求头（缺了会被拒）：
+
+```
+m-appkey: fe_com.sankuai.friday.fe.longcat
+m-traceid: <毫秒时间戳+随机>
+origin: https://longcat.chat
+referer: https://longcat.chat/t
+x-client-language: zh
+x-requested-with: XMLHttpRequest
+```
+
+### 3.5.2 oversea 请求体
+
+```jsonc
+{
+  "content": "<正文>",
+  "agentId": "1",
+  "messages": [
+    { "role": "user", "events": [{"type":"userMsg","content":"<正文>","status":"FINISHED"}],
+      "chatStatus": "FINISHED", "messageId": 12345678, "idType": "custom" },
+    { "role": "assistant", "events": [], "chatStatus": "LOADING",
+      "messageId": 12345679, "idType": "custom" }
+  ],
+  "reasonEnabled": 0,     // 1 = 输出思考
+  "searchEnabled": 0,     // 1 = 上游联网搜索
+  "regenerate": 0
+}
+```
+
+### 3.5.3 cn 请求体
+
+```
+POST /api/v1/session-create   {"model":"","agentId":"1"}   → data.conversationId
+POST /api/v1/chat-completion-V2 {"content","conversationId","agentId","reasonEnabled","searchEnabled",
+                                 "regenerate":0,"parentMessageId":0,"files":[]}
+```
+
+登录态校验：`GET /api/v1/user-current` → `data.loginStatus`（1 = 已登录）。
+无 Cookie 调 session-create 返回 `{"code":401,"message":"请求cookie信息为空"}`。
+
+### 3.5.4 SSE 帧
+
+```jsonc
+{"conversationId":"...","model":"LongCat-2.5-Agent","event":{"type":"create"}}
+{"model":"LongCat-2.5-Agent","event":{"type":"content","content":"你","status":"PROCESSING"}}  // 增量
+{"model":"LongCat-2.5-Agent","event":{"type":"content","content":"","status":"FINISHED"}}
+{"model":"LongCat-2.5-Agent","tokenInfo":{"promptTokens":449,"completionTokens":2},
+ "event":{"type":"finish","finalContentX":"你好","usage":{...}},"lastOne":true}
+```
+
+- 正文增量在 `event.content`（`event.type=="content"`），末帧 `lastOne:true` → **必须自己断开**
+- `tokenInfo` 是**上游真实 token 数**（妙手通道没有这个）
+- `promptTokens` 基线约 449：服务端注入了自己的 agent 系统提示词
+
+### 3.5.5 限流
+
+连发 10 次左右就会开始返回（HTTP 200 + JSON，不是 SSE）：
+
+```json
+{"code":429,"message":"操作太快啦，请稍后再试～","data":null}
+```
+
+而且**冷却时间较长**（本项目实测约 10 分钟以上未恢复，疑似按 IP 累计配额）。
+对策：串行 + 最小间隔（本项目默认 1500ms）、429 后本地冷却（默认 90s）、失败可回落妙手通道。
+
+> ⚠️ 该通道是**网页对话接口**，不是可编排的模型 API：不吃 `tools`/`function calling`，
+> 也没法接管工具执行。只能当"文本补全"用，不能当 agent 后端。
+
 ## 4. 客户端内部还有哪些链路（未接入）
 
 - **Pike 长连接 + desk channel**：桌面端本地 `agent-host` 与云端通过 Pike(WebSocket) 通信，

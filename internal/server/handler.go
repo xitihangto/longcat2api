@@ -29,13 +29,14 @@ type Server struct {
 	cfg     *config.Config
 	pool    *pool.Pool
 	up      *upstream.Client
+	lw      *upstream.LongcatWeb
 	mux     *http.ServeMux
 	Version string
 }
 
 // New 构建服务。
-func New(cfg *config.Config, p *pool.Pool, up *upstream.Client, version string) *Server {
-	s := &Server{cfg: cfg, pool: p, up: up, mux: http.NewServeMux(), Version: version}
+func New(cfg *config.Config, p *pool.Pool, up *upstream.Client, lw *upstream.LongcatWeb, version string) *Server {
+	s := &Server{cfg: cfg, pool: p, up: up, lw: lw, mux: http.NewServeMux(), Version: version}
 	s.routes()
 	return s
 }
@@ -113,8 +114,39 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"accounts":         s.cfgAccountCount(),
 		"api_key_required": s.cfg.APIKey != "",
 		"panel_key_hint":   "/panel?key=<api_key>",
+		"channels":         s.channels(),
 		"time":             time.Now().Format(time.RFC3339),
 	})
+}
+
+// channels 返回两条通道的运行态。
+func (s *Server) channels() map[string]any {
+	out := map[string]any{}
+	out["catpaw"] = map[string]any{
+		"enabled": s.pool != nil,
+		"models":  s.modelsOf("catpaw"),
+	}
+	if s.lw != nil {
+		en, mode, left := s.lw.Status()
+		out["longcat_web"] = map[string]any{
+			"enabled":         en,
+			"mode":            mode,
+			"cooldown_left_s": left,
+			"models":          s.modelsOf("longcat-web"),
+		}
+	}
+	return out
+}
+
+// modelsOf 返回某条通道承载的模型名。
+func (s *Server) modelsOf(provider string) []string {
+	var out []string
+	for _, e := range s.cfg.Models.Catalog {
+		if e.Provider == provider {
+			out = append(out, e.Name)
+		}
+	}
+	return out
 }
 
 func (s *Server) cfgAccountCount() int {
@@ -132,15 +164,20 @@ func (s *Server) cfgAccountCount() int {
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	type m struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
+		ID       string `json:"id"`
+		Object   string `json:"object"`
+		Created  int64  `json:"created"`
+		OwnedBy  string `json:"owned_by"`
+		Provider string `json:"provider,omitempty"`
 	}
 	out := make([]m, 0, len(s.cfg.Models.Catalog))
 	now := time.Now().Unix()
 	for _, e := range s.cfg.Models.Catalog {
-		out = append(out, m{ID: e.Name, Object: "model", Created: now, OwnedBy: "catpaw"})
+		owner := e.Provider
+		if owner == "" {
+			owner = "catpaw"
+		}
+		out = append(out, m{ID: e.Name, Object: "model", Created: now, OwnedBy: owner, Provider: e.Provider})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": out})
@@ -231,26 +268,41 @@ func (m chatMsgIn) text() string {
 	return ""
 }
 
-func (s *Server) resolveModel(name string) (string, error) {
+// resolveModel 把客户端模型名解析成（上游模型名, 通道）。
+// 通道：catpaw（妙手账号池）| longcat-web（longcat.chat 免费 2.5）
+func (s *Server) resolveModel(name string) (string, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return s.cfg.Upstream.Model, nil
+		return s.cfg.Upstream.Model, "catpaw", nil
 	}
 	for _, h := range s.cfg.Models.Hidden {
 		if strings.EqualFold(h, name) {
-			return "", fmt.Errorf("模型 %s 不可用", name)
+			return "", "", fmt.Errorf("模型 %s 不可用", name)
 		}
 	}
 	for _, e := range s.cfg.Models.Catalog {
 		if strings.EqualFold(e.Name, name) {
-			return e.Upstream, nil
+			p := e.Provider
+			if p == "" {
+				p = "catpaw"
+			}
+			return e.Upstream, p, nil
 		}
 	}
-	if up, ok := s.cfg.Models.Alias[strings.ToLower(name)]; ok {
-		return up, nil
+	if alias, ok := s.cfg.Models.Alias[strings.ToLower(name)]; ok {
+		for _, e := range s.cfg.Models.Catalog {
+			if strings.EqualFold(e.Name, alias) {
+				p := e.Provider
+				if p == "" {
+					p = "catpaw"
+				}
+				return e.Upstream, p, nil
+			}
+		}
+		return alias, "catpaw", nil
 	}
-	// 未知模型：直接透传（上游可能支持新模型）
-	return name, nil
+	// 未知模型：按 catpaw 透传（妙手会忽略模型名，回它自己的）
+	return name, "catpaw", nil
 }
 
 // buildPrompt 把 OpenAI messages 压成一个上游可接受的正文。
@@ -342,7 +394,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "请求体解析失败: "+err.Error())
 		return
 	}
-	model, err := s.resolveModel(req.Model)
+	upModel, provider, err := s.resolveModel(req.Model)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "model_not_found", err.Error())
 		return
@@ -357,83 +409,74 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	// 选号 + 最多重试其它账号一次
 	var sw *streamWriter
-	var onDelta func(string) error
 	if req.Stream {
-		sw = newStreamWriter(w, model)
-		onDelta = sw.write
+		sw = newStreamWriter(w, upModel)
 	}
-	var res *upstream.Result
-	var used *account.Account
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		acc, err := s.pool.Acquire()
-		if err != nil {
-			if used == nil {
-				writeErr(w, http.StatusServiceUnavailable, "no_account", err.Error())
-				return
-			}
-			lastErr = err
-			break
+	var usedChannel string
+	onDelta := func(delta string) error {
+		if sw == nil {
+			return nil
 		}
-		used = acc
-		start := time.Now()
-		res, lastErr = s.up.Chat(ctx, acc, prompt, model, onDelta)
-		s.pool.Release(acc)
-		s.pool.Report(acc, lastErr)
-		if s.cfg.Logging.LogRequests {
-			status := "ok"
-			if lastErr != nil {
-				status = "err: " + lastErr.Error()
-			}
-			log.Printf("chat acc=%s model=%s dur=%s status=%s", acc.ID, model, time.Since(start).Round(time.Millisecond), status)
-		}
-		if lastErr == nil {
-			break
-		}
-		var ue *upstream.Error
-		if errors.As(lastErr, &ue) && ue.Kind == upstream.KindBadRequest {
-			break // 请求本身有问题，换号无用
-		}
-		if ctx.Err() != nil || (sw != nil && sw.started) {
-			break // 已经开始向客户端输出，不再换号重试
-		}
+		return sw.write(delta)
 	}
-	if lastErr != nil && (res == nil || res.Text == "") && (sw == nil || !sw.started) {
+	onReason := func(delta string) error {
+		if sw == nil {
+			return nil
+		}
+		return sw.writeReason(delta)
+	}
+
+	res, err := s.runProvider(ctx, provider, prompt, upModel, &usedChannel, onDelta, onReason)
+	if usedChannel != "" {
+		w.Header().Set("X-Longcat-Channel", usedChannel)
+	}
+
+	if err != nil && (res == nil || res.Text == "") && (sw == nil || !sw.started) {
 		status := http.StatusBadGateway
 		var ue *upstream.Error
-		if errors.As(lastErr, &ue) {
+		if errors.As(err, &ue) {
 			switch ue.Kind {
 			case upstream.KindRateLimit, upstream.KindQuota:
 				status = http.StatusTooManyRequests
 			case upstream.KindBadRequest:
 				status = http.StatusBadRequest
+			case upstream.KindAuth:
+				status = http.StatusUnauthorized
 			}
 		}
-		if errors.Is(lastErr, pool.ErrNoAccount) {
+		if errors.Is(err, pool.ErrNoAccount) {
 			status = http.StatusServiceUnavailable
 		}
-		writeErr(w, status, "upstream_error", lastErr.Error())
+		writeErr(w, status, "upstream_error", err.Error())
 		return
 	}
 
-	outModel := model
-	if res != nil && res.Model != "" {
-		outModel = res.Model
-	}
+	outModel := upModel
 	text := ""
+	pTok, cTok := 0, 0
 	if res != nil {
+		if res.Model != "" {
+			outModel = res.Model
+		}
 		text = res.Text
+		pTok, cTok = res.PromptTokens, res.CompletionTokens
 	}
+	if pTok == 0 {
+		pTok = estimateTokens(prompt)
+	}
+	if cTok == 0 {
+		cTok = estimateTokens(text)
+	}
+
 	if req.Stream {
 		sw.model = outModel
 		if !sw.started {
-			if err := sw.write(text); err != nil {
+			if werr := sw.write(text); werr != nil {
 				return
 			}
 		}
-		sw.finish(prompt, text)
+		sw.finishUsage(pTok, cTok)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -448,11 +491,92 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			"finish_reason": "stop",
 		}},
 		"usage": map[string]any{
-			"prompt_tokens":     estimateTokens(prompt),
-			"completion_tokens": estimateTokens(text),
-			"total_tokens":      estimateTokens(prompt) + estimateTokens(text),
+			"prompt_tokens":     pTok,
+			"completion_tokens": cTok,
+			"total_tokens":      pTok + cTok,
 		},
 	})
+}
+
+// runProvider 按通道分派；longcat-web 失败时可按配置回落妙手。
+func (s *Server) runProvider(ctx context.Context, provider, prompt, model string, used *string, onDelta, onReason func(string) error) (*upstream.Result, error) {
+	switch provider {
+	case "longcat-web":
+		res, err := s.lw.Chat(ctx, prompt, model, onDelta, onReason)
+		if err == nil {
+			*used = "longcat-web"
+			s.logChat("longcat-web", model, res, nil)
+			return res, nil
+		}
+		s.logChat("longcat-web", model, res, err)
+		if s.cfg.LongcatWeb.FallbackToCatpaw && (res == nil || res.Text == "") && ctx.Err() == nil {
+			var ue *upstream.Error
+			if errors.As(err, &ue) && ue.Kind == upstream.KindRateLimit {
+				log.Printf("⚠️  longcat-web 限流，已回落到妙手 2.0（客户端请求的是 %s，实际由 CatPaw 生成）", model)
+				*used = "catpaw(fallback)"
+				return s.runCatpaw(ctx, prompt, s.cfg.Upstream.Model, onDelta)
+			}
+		}
+		return res, err
+	default:
+		*used = "catpaw"
+		return s.runCatpaw(ctx, prompt, model, onDelta)
+	}
+}
+
+// runCatpaw 走妙手账号池（原逻辑）。
+func (s *Server) runCatpaw(ctx context.Context, prompt, model string, onDelta func(string) error) (*upstream.Result, error) {
+	var res *upstream.Result
+	var used *account.Account
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		acc, err := s.pool.Acquire()
+		if err != nil {
+			if used == nil {
+				return nil, err
+			}
+			lastErr = err
+			break
+		}
+		used = acc
+		start := time.Now()
+		res, lastErr = s.up.Chat(ctx, acc, prompt, model, onDelta)
+		s.pool.Release(acc)
+		s.pool.Report(acc, lastErr)
+		if s.cfg.Logging.LogRequests {
+			status := "ok"
+			if lastErr != nil {
+				status = "err: " + lastErr.Error()
+			}
+			log.Printf("chat channel=catpaw acc=%s model=%s dur=%s status=%s", acc.ID, model, time.Since(start).Round(time.Millisecond), status)
+		}
+		if lastErr == nil {
+			break
+		}
+		var ue *upstream.Error
+		if errors.As(lastErr, &ue) && ue.Kind == upstream.KindBadRequest {
+			break
+		}
+		if ctx.Err() != nil || (res != nil && res.Text != "") {
+			break
+		}
+	}
+	return res, lastErr
+}
+
+func (s *Server) logChat(channel, model string, res *upstream.Result, err error) {
+	if !s.cfg.Logging.LogRequests {
+		return
+	}
+	status := "ok"
+	if err != nil {
+		status = "err: " + err.Error()
+	}
+	tok := 0
+	if res != nil {
+		tok = res.PromptTokens + res.CompletionTokens
+	}
+	log.Printf("chat channel=%s model=%s tokens=%d status=%s", channel, model, tok, status)
 }
 
 // streamWriter 把上游增量实时转成 OpenAI SSE chunk。
@@ -506,13 +630,27 @@ func (sw *streamWriter) write(delta string) error {
 	return nil
 }
 
-func (sw *streamWriter) finish(prompt, text string) {
+// writeReason 输出思考内容（reasoning_content），支持该字段的客户端会自动展示
+func (sw *streamWriter) writeReason(delta string) error {
+	if delta == "" {
+		return nil
+	}
+	sw.ensure()
+	sw.send(map[string]any{"reasoning_content": delta}, nil)
+	return nil
+}
+
+func (sw *streamWriter) finishUsage(pTok, cTok int) {
+	sw.finish2(pTok, cTok)
+}
+
+func (sw *streamWriter) finish2(pTok, cTok int) {
 	sw.ensure()
 	sw.send(map[string]any{}, "stop")
 	usage := map[string]any{
-		"prompt_tokens":     estimateTokens(prompt),
-		"completion_tokens": estimateTokens(text),
-		"total_tokens":      estimateTokens(prompt) + estimateTokens(text),
+		"prompt_tokens":     pTok,
+		"completion_tokens": cTok,
+		"total_tokens":      pTok + cTok,
 	}
 	b, _ := json.Marshal(map[string]any{
 		"id": sw.id, "object": "chat.completion.chunk", "created": sw.created, "model": sw.model,
