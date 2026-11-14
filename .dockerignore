@@ -1,0 +1,13 @@
+.git/
+.gitignore
+data/
+config/
+config.json
+*.log
+.env
+docs/
+scripts/
+README.md
+longcat2api
+longcat-login
+**/*_test.go

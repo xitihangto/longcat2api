@@ -1,0 +1,87 @@
+# longcat2api · 妙手(CatPaw) → OpenAI 兼容网关
+#
+# 用法：
+#   1) cp .env.example .env && cp config.example.json config.json   # 填好 api_key
+#   2) 准备账号（二选一）：
+#      a. 宿主机已登录妙手客户端 → 在仓库目录执行 `go run ./cmd/login`
+#         （会解密本机凭据并写入 ./data/accounts.json，容器挂载即可用）
+#      b. 直接把 token 写进 .env 的 LONGCAT_TOKEN，首次启动自动导入
+#   3) docker compose up -d
+#   4) curl -N http://127.0.0.1:8090/v1/chat/completions -H 'Authorization: Bearer <api_key>' ...
+#
+# 注意：容器内无法读取 macOS/Windows 客户端的加密凭据（机器标识不同），
+#       token 必须由宿主机工具或 .env 注入。
+
+services:
+  longcat2api:
+    build:
+      context: .
+      args:
+        # 国内网络可换成 https://goproxy.cn,direct
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: longcat2api:${TAG:-0.1.0}
+    container_name: longcat2api
+    restart: unless-stopped
+
+    # 默认 root 运行：挂载目录免 chown，accounts.json(0600) 也能直接读，开箱可用。
+    # 想收紧权限就用宿主 uid：.env 里写 PUID=$(id -u) / PGID=$(id -g)
+    # （此时需保证 ./data ./config 属主一致，否则可能读不到 accounts.json）
+    user: "${PUID:-0}:${PGID:-0}"
+
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # 非空则覆盖 config.json 里的 api_key
+      LONGCAT_API_KEY: ${LONGCAT_API_KEY:-}
+      # 可选：覆盖监听/模型/上游域名（一般不用动）
+      LONGCAT_LISTEN: ${LONGCAT_LISTEN:-:8090}
+      LONGCAT_MODEL: ${LONGCAT_MODEL:-}
+      LONGCAT_CHAT_BASE: ${LONGCAT_CHAT_BASE:-}
+      LONGCAT_STREAM_BASE: ${LONGCAT_STREAM_BASE:-}
+      LONGCAT_GATEWAY_BASE: ${LONGCAT_GATEWAY_BASE:-}
+      LONGCAT_LOG_REQUESTS: ${LONGCAT_LOG_REQUESTS:-true}
+      # 首次启动注入账号；导入成功后会落到 /app/data/accounts.json，
+      # 之后可以把这个变量删掉
+      LONGCAT_TOKEN: ${LONGCAT_TOKEN:-}
+
+    ports:
+      - "${PORT:-8090}:8090"
+
+    volumes:
+      # 配置目录（挂目录而不是文件：文件不存在时程序会自动生成，不会变成目录踩坑）
+      - ./config:/app/config
+      # 账号 + 冷却状态持久化
+      - ./data:/app/data
+
+    healthcheck:
+      # $$ 是 compose 的转义：真正交给 shell 的是 $L / ${L#:}
+      test: ["CMD-SHELL", "L=$${LONGCAT_LISTEN:-:8090}; wget -qO- http://127.0.0.1:$${L#:}/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 一次性工具容器：在容器内校验/导入 token
+  #   docker compose run --rm login -token <妙手token>
+  #   docker compose run --rm login -check
+  login:
+    profiles: ["tools"]
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: longcat2api:${TAG:-0.1.0}
+    container_name: longcat2api-login
+    user: "${PUID:-0}:${PGID:-0}"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    entrypoint: ["/app/longcat-login"]
+    command: ["-config", "/app/config/config.json"]

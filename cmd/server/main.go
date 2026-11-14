@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ const appVersion = "0.1.0"
 
 func main() {
 	cfgPath := flag.String("config", "config.json", "配置文件路径（不存在时自动生成推荐配置）")
+	token := flag.String("token", "", "临时指定妙手 token（等价于 LONGCAT_TOKEN 环境变量），启动时写入账号池")
 	version := flag.Bool("version", false, "打印版本号")
 	flag.Parse()
 	if *version {
@@ -39,8 +41,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载账号失败: %v", err)
 	}
+	// 容器场景：允许用 -token / LONGCAT_TOKEN 直接注入账号（首次启动即用）。
 	if store.Enabled() == 0 {
-		log.Printf("⚠️  没有可用账号，请先执行 `go run ./cmd/login` 导入妙手登录态（或手工写 %s）", cfg.AccountsFile)
+		tk := strings.TrimSpace(*token)
+		if tk == "" {
+			tk = config.TokenFromEnv()
+		}
+		if tk != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			uid, uname, err := upstream.New(cfg).CheckToken(ctx, tk)
+			cancel()
+			if err != nil {
+				log.Fatalf("注入 token 校验失败: %v", err)
+			}
+			if err := store.Add(&account.Account{Name: uname, Token: tk, UID: uid, Enabled: true, Note: "injected by token"}); err != nil {
+				log.Fatalf("写入账号失败: %v", err)
+			}
+			log.Printf("已注入账号 uid=%s user=%s", uid, uname)
+		}
+	}
+	if store.Enabled() == 0 {
+		log.Printf("⚠️  没有可用账号：请执行 `go run ./cmd/login`（本机客户端）或 `-token <妙手token>` 导入，然后重启")
 	}
 
 	p := pool.New(store, cfg)

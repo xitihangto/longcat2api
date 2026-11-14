@@ -17,7 +17,8 @@
 | `GET /healthz` / `/panel/api/*` 观测接口 | ✅ |
 | 妙手登录态一键导入（本机凭据解密） | ✅ `go run ./cmd/login` |
 | 多账号池 + 熔断/冷却/在途负载 | ✅ |
-| Web 面板 UI | ⏳ 待做（接口已就绪） |
+| Docker / docker compose 部署 | ✅ Dockerfile + compose + 健康检查 |
+| Web 面板 UI | ✅ 最简版（`/panel`：账号池 + 概览，15s 自刷） |
 | 工具调用 / 多模态 / 联网搜索 | ⏳ 未接入 |
 | token 自动续期 | ⏳ 需重新登录导入 |
 
@@ -45,6 +46,89 @@ curl -N http://127.0.0.1:8090/v1/chat/completions \
 
 任意 OpenAI SDK / Cherry Studio / NextChat 只要把 Base URL 改成
 `http://127.0.0.1:8090/v1`，模型填 `LongCat-2.0`（或别名 `longcat`）即可。
+
+## Docker 部署
+
+```bash
+cp .env.example .env                 # 填 LONGCAT_API_KEY（可选 PUID/PGID、LONGCAT_TOKEN）
+cp config.example.json config/config.json   # 想改端口/模型再编辑
+docker compose up -d --build
+docker compose logs -f longcat2api
+curl -s http://127.0.0.1:8090/healthz
+```
+
+### 账号怎么进容器
+
+容器里**没法**解密客户端凭据（机器标识不同），所以 token 必须由宿主机提供，两条路：
+
+**A. 宿主机导入（推荐，长期用）**
+
+```bash
+# 本机已登录妙手客户端时
+go run ./cmd/login                 # 解密 + 校验 + 写入 ./data/accounts.json
+docker compose restart longcat2api # 重启加载账号（或首次 up 时即已挂载）
+```
+
+**B. 容器内注入（最快，试水用）**
+
+```bash
+# 1) 先把 token 拿到手：宿主机跑 go run ./cmd/login，或从 ./data/accounts.json 里取
+# 2) 写进 .env：LONGCAT_TOKEN=AgGF...
+docker compose up -d --build       # 首次启动检测到无账号 → 自动校验并写入 /app/data/accounts.json
+# 3) 导入成功后可以把 .env 里的 LONGCAT_TOKEN 删掉
+```
+
+也可以在容器内跑工具容器：
+
+```bash
+docker compose run --rm login -token AgGF...   # 导入指定 token
+docker compose run --rm login -check           # 巡检已有账号是否有效
+```
+
+### 目录挂载
+
+| 宿主机 | 容器 | 说明 |
+|---|---|---|
+| `./config/` | `/app/config` | 配置目录；`config.json` 不存在时程序会自动生成完整默认配置 |
+| `./data/` | `/app/data` | `accounts.json`（账号）+ `state.json`（冷却状态） |
+
+### 环境变量（覆盖 config.json，无需改文件）
+
+| 变量 | 说明 |
+|---|---|
+| `LONGCAT_API_KEY` | 对外 Bearer key，非空则覆盖配置 |
+| `LONGCAT_LISTEN` | 监听地址，默认 `:8090` |
+| `LONGCAT_MODEL` | 默认模型名 |
+| `LONGCAT_CHAT_BASE` / `LONGCAT_STREAM_BASE` / `LONGCAT_GATEWAY_BASE` | 上游三域名（换环境/自建代理时用） |
+| `LONGCAT_ACCOUNTS_FILE` / `LONGCAT_STATE_FILE` | 账号/状态路径 |
+| `LONGCAT_TIMEOUT_SECONDS` / `LONGCAT_FIRST_BYTE_SECONDS` | 超时 |
+| `LONGCAT_LOG_REQUESTS` | 是否打印每请求日志 |
+| `LONGCAT_TOKEN` | 仅首次启动注入账号用 |
+| `PORT` / `PUID` / `PGID` / `TZ` / `GOPROXY` / `TAG` | compose 层面：映射端口、运行用户、时区、构建代理、镜像 tag |
+
+### 挂载权限（常见坑）
+
+**默认容器以 root 运行**（compose 里 `user: "${PUID:-0}:${PGID:-0}"`），
+这样 `./data/accounts.json`（0600）能直接读、`./config` 能自动生成配置，开箱即用。
+
+想收紧成非 root：
+
+```bash
+echo "PUID=$(id -u)"$'\n'"PGID=$(id -g)" >> .env
+sudo chown -R "$(id -u):$(id -g)" ./data ./config   # 属主要和 PUID/PGID 一致
+docker compose up -d
+```
+
+非 root 时最典型的两个症状：读不到 `accounts.json` → `/healthz` 里 `accounts: 0`；
+写不了 `state.json` → 冷却状态不持久（不影响对话）。
+
+### 多架构
+
+`Dockerfile` 交叉编译 `linux/amd64` 与 `linux/arm64`（CGO 关闭的静态二进制）：
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t yourname/longcat2api:0.1.0 --push .
+```
 
 ## 配置说明（config.json）
 

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -145,9 +147,11 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			cfg := Default()
+			// 写盘失败不致命：容器挂载目录可能只读，此时用环境变量 + 内置默认值运行。
 			if err := Save(path, cfg); err != nil {
-				return nil, fmt.Errorf("生成默认配置失败: %w", err)
+				log.Printf("⚠️  无法写入默认配置 %s（%v），本次使用内置默认值运行", path, err)
 			}
+			cfg.applyEnv()
 			return cfg, nil
 		}
 		return nil, err
@@ -157,8 +161,51 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("配置解析失败 (%s): %w", path, err)
 	}
 	cfg.fill()
+	cfg.applyEnv()
 	return cfg, nil
 }
+
+// applyEnv 用环境变量覆盖配置，容器部署时无需改文件。
+//
+// 支持：LONGCAT_LISTEN / LONGCAT_API_KEY / LONGCAT_MODEL /
+// LONGCAT_CHAT_BASE / LONGCAT_STREAM_BASE / LONGCAT_GATEWAY_BASE /
+// LONGCAT_ACCOUNTS_FILE / LONGCAT_STATE_FILE /
+// LONGCAT_TIMEOUT_SECONDS / LONGCAT_FIRST_BYTE_SECONDS / LONGCAT_LOG_REQUESTS
+func (c *Config) applyEnv() {
+	str := func(key string, dst *string) {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			*dst = v
+		}
+	}
+	str("LONGCAT_LISTEN", &c.Listen)
+	str("LONGCAT_API_KEY", &c.APIKey)
+	str("LONGCAT_MODEL", &c.Upstream.Model)
+	str("LONGCAT_CHAT_BASE", &c.Upstream.ChatBase)
+	str("LONGCAT_STREAM_BASE", &c.Upstream.StreamBase)
+	str("LONGCAT_GATEWAY_BASE", &c.Upstream.GatewayBase)
+	str("LONGCAT_ACCOUNTS_FILE", &c.AccountsFile)
+	str("LONGCAT_STATE_FILE", &c.StateFile)
+	str("LONGCAT_USER_AGENT", &c.Upstream.UserAgent)
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_TIMEOUT_SECONDS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Upstream.TimeoutSeconds = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_FIRST_BYTE_SECONDS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Upstream.FirstByteSeconds = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("LONGCAT_LOG_REQUESTS")); v != "" {
+		c.Logging.LogRequests = v == "1" || strings.EqualFold(v, "true")
+	}
+	c.Upstream.ChatBase = strings.TrimRight(c.Upstream.ChatBase, "/")
+	c.Upstream.StreamBase = strings.TrimRight(c.Upstream.StreamBase, "/")
+	c.Upstream.GatewayBase = strings.TrimRight(c.Upstream.GatewayBase, "/")
+}
+
+// TokenFromEnv 返回环境变量里预置的 token（容器首次启动用）。
+func TokenFromEnv() string { return strings.TrimSpace(os.Getenv("LONGCAT_TOKEN")) }
 
 // Save 原子写配置。
 func Save(path string, cfg *Config) error {
